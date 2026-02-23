@@ -4,6 +4,14 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.4.2] - 2026-02-23
+
+### Fixed
+- Naprawa layoutu desktop UI: okna Mirror i Sensor nie nakładają się.
+- Poprawne skalowanie canvasów delay/telemetry (dynamiczne dopasowanie do rozmiaru CSS).
+- Usunięcie duplikacji przycisków ON/OFF/Toggle w liście switchy.
+- `window-body` poprawnie rozciąga zawartość w pionie.
+
 ## [0.4.1] - 2026-02-23
 
 ### Added

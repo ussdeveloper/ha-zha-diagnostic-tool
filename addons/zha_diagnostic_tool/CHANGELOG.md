@@ -1,5 +1,14 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.3.2] - 2026-02-23
+
+### Fixed
+- Naprawa nakładania się okien Mirror i Sensor (obie miały ten sam grid-row).
+- Grid zmieniony na 4 wiersze — wszystkie okna widoczne jednocześnie.
+- Synchronizacja rozdzielczości canvasu z rozmiarem CSS (wyeliminowanie rozmytych wykresów).
+- Usunięcie zagnieżdżonych `.right-actions` w liście switchy (zduplikowane przyciski).
+- `.window-body` z `flex: 1` — listy poprawnie wypełniają przestrzeń.
+
 ## [0.3.1] - 2026-02-23
 
 ### Added
