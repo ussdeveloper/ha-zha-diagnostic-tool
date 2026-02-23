@@ -126,6 +126,95 @@ MOCK_DASHBOARD = json.dumps({
             {"type": "call_service", "summary": "switch.turn_on plug_kitchen", "ts": "2026-02-23T12:29:55"},
         ],
     },
+    "zha_devices_full": [
+        {
+            "ieee": "00:00:00:00:00:00:00:00", "nwk": "0x0000",
+            "name": "Coordinator", "user_given_name": "ZHA Coordinator",
+            "manufacturer": "Dresden Elektronik", "model": "ConBee II",
+            "is_coordinator": True, "device_type": "Coordinator",
+            "power_source_str": "Main", "available": True,
+            "endpoints": {},
+            "neighbors": [],
+        },
+        {
+            "ieee": "00:11:22:33:44:55:66:77", "nwk": "0x1234",
+            "name": "TRADFRI motion sensor", "user_given_name": "Hallway Motion",
+            "manufacturer": "IKEA of Sweden", "model": "TRADFRI motion sensor",
+            "is_coordinator": False, "device_type": "EndDevice",
+            "power_source_str": "Battery", "available": True,
+            "lqi": 210,
+            "endpoints": {
+                "1": {"in_clusters": [0, 1, 3, 32, 1030], "out_clusters": [25]}
+            },
+            "neighbors": [
+                {"ieee": "11:22:33:44:55:66:77:88", "lqi": 210},
+                {"ieee": "aa:bb:cc:dd:ee:ff:00:11", "lqi": 185},
+            ],
+        },
+        {
+            "ieee": "aa:bb:cc:dd:ee:ff:00:11", "nwk": "0x5678",
+            "name": "lumi.weather", "user_given_name": "Bedroom Temp",
+            "manufacturer": "Xiaomi", "model": "lumi.weather",
+            "is_coordinator": False, "device_type": "EndDevice",
+            "power_source_str": "Battery", "available": True,
+            "lqi": 180,
+            "endpoints": {
+                "1": {"in_clusters": [0, 1, 3, 1026, 1029], "out_clusters": []}
+            },
+            "neighbors": [
+                {"ieee": "11:22:33:44:55:66:77:88", "lqi": 175},
+            ],
+        },
+        {
+            "ieee": "11:22:33:44:55:66:77:88", "nwk": "0x9ABC",
+            "name": "TRADFRI control outlet", "user_given_name": "Kitchen Plug",
+            "manufacturer": "IKEA of Sweden", "model": "TRADFRI control outlet",
+            "is_coordinator": False, "device_type": "Router",
+            "power_source_str": "Main", "available": True,
+            "lqi": 195,
+            "endpoints": {
+                "1": {"in_clusters": [0, 3, 4, 5, 6, 8, 2820], "out_clusters": [25]}
+            },
+            "neighbors": [
+                {"ieee": "00:11:22:33:44:55:66:77", "lqi": 210},
+                {"ieee": "aa:bb:cc:dd:ee:ff:00:11", "lqi": 185},
+                {"ieee": "22:33:44:55:66:77:88:99", "lqi": 155},
+            ],
+        },
+        {
+            "ieee": "22:33:44:55:66:77:88:99", "nwk": "0xDEF0",
+            "name": "lumi.magnet.agl02", "user_given_name": None,
+            "manufacturer": "Xiaomi", "model": "lumi.magnet.agl02",
+            "is_coordinator": False, "device_type": "EndDevice",
+            "power_source_str": "Battery", "available": True,
+            "lqi": 80,
+            "endpoints": {
+                "1": {"in_clusters": [0, 1, 3, 1280], "out_clusters": []}
+            },
+            "neighbors": [
+                {"ieee": "11:22:33:44:55:66:77:88", "lqi": 80},
+            ],
+        },
+        {
+            "ieee": "33:44:55:66:77:88:99:aa", "nwk": "0x1111",
+            "name": "Aqara Vibration Sensor", "user_given_name": "Washing Machine",
+            "manufacturer": "Xiaomi", "model": "lumi.vibration.agl01",
+            "is_coordinator": False, "device_type": "EndDevice",
+            "power_source_str": "Battery", "available": False,
+            "lqi": 40,
+            "endpoints": {
+                "1": {"in_clusters": [0, 1, 3], "out_clusters": []}
+            },
+            "neighbors": [],
+        },
+    ],
+    "zigbee_error_log": [
+        {"ts": "2026-02-23T12:25:01", "type": "timeout", "ieee": "22:33:44:55:66:77:88:99", "command": "toggle", "lqi": 80, "raw": {"type":"zha_event","entity_id":"binary_sensor.door_front","event_type":"timeout"}},
+        {"ts": "2026-02-23T12:27:15", "type": "not_delivered", "ieee": "33:44:55:66:77:88:99:aa", "command": "on", "lqi": 40, "raw": {"type":"zha_event","event_type":"not_delivered"}},
+        {"ts": "2026-02-23T12:28:00", "type": "lqi_critical", "ieee": "22:33:44:55:66:77:88:99", "command": None, "lqi": 18, "raw": {"type":"zha_event","data":{"lqi":18}}},
+        {"ts": "2026-02-23T12:29:30", "type": "log_error", "ieee": None, "command": None, "lqi": None, "raw": {"message": "zigbee coordinator lost connection", "level": "error"}},
+    ],
+    "zha_health_issues": [],
     "runtime": {"token_present": True, "last_error": None},
 })
 
@@ -192,6 +281,17 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/keepalive"):
             self._json_response('{"items":[]}')
+            return
+        if self.path.startswith("/api/zha-network"):
+            # Return the same zha_devices_full from dashboard
+            import json as _json
+            dash = _json.loads(MOCK_DASHBOARD)
+            self._json_response(_json.dumps(dash["zha_devices_full"]))
+            return
+        if self.path.startswith("/api/zigbee-logs"):
+            import json as _json
+            dash = _json.loads(MOCK_DASHBOARD)
+            self._json_response(_json.dumps(dash["zigbee_error_log"]))
             return
         if self.path.startswith("/api/"):
             self._json_response("[]")

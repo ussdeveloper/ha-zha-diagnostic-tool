@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.1) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.2) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -26,6 +26,8 @@ const state = {
   zhaDevicesFull: [],
   zhaHealthIssues: [],
   iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
+  batterySelected: new Set(),
+  entityShortcuts: JSON.parse(localStorage.getItem("zha_entity_shortcuts") || "[]"),
 };
 
 /* ---------- DOM helpers (null-safe) ---------- */
@@ -93,11 +95,15 @@ function initAutocomplete(inputId, listId, getItems) {
 
   let activeIdx = -1;
 
+  // Items may be plain strings OR {label, value} objects
+  function _label(it) { return typeof it === "string" ? it : it.label; }
+  function _value(it) { return typeof it === "string" ? it : it.value; }
+
   function render() {
     const q = input.value.trim().toLowerCase();
     const items = getItems();
     const filtered = q
-      ? items.filter((it) => it.toLowerCase().includes(q))
+      ? items.filter((it) => _label(it).toLowerCase().includes(q))
       : items;
 
     listEl.innerHTML = "";
@@ -109,23 +115,27 @@ function initAutocomplete(inputId, listId, getItems) {
     }
 
     for (let i = 0; i < filtered.length && i < 80; i++) {
+      const item = filtered[i];
+      const label = _label(item);
+      const value = _value(item);
       const div = document.createElement("div");
       div.className = "autocomplete-item";
+      div.dataset.value = value;
       if (q) {
-        const idx = filtered[i].toLowerCase().indexOf(q);
-        const before = filtered[i].slice(0, idx);
-        const match = filtered[i].slice(idx, idx + q.length);
-        const after = filtered[i].slice(idx + q.length);
+        const idx = label.toLowerCase().indexOf(q);
+        const before = label.slice(0, idx);
+        const match = label.slice(idx, idx + q.length);
+        const after = label.slice(idx + q.length);
         div.innerHTML =
           escapeHtml(before) +
           `<span class="ac-match">${escapeHtml(match)}</span>` +
           escapeHtml(after);
       } else {
-        div.textContent = filtered[i];
+        div.textContent = label;
       }
       div.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        input.value = filtered[i];
+        input.value = value;
         listEl.classList.remove("open");
       });
       listEl.appendChild(div);
@@ -151,7 +161,7 @@ function initAutocomplete(inputId, listId, getItems) {
       activeIdx = Math.max(activeIdx - 1, 0);
     } else if (e.key === "Enter" && activeIdx >= 0) {
       e.preventDefault();
-      input.value = items[activeIdx].textContent;
+      input.value = items[activeIdx].dataset.value || items[activeIdx].textContent;
       listEl.classList.remove("open");
       return;
     } else if (e.key === "Escape") {
@@ -212,6 +222,7 @@ const WM = {
     "battery-win":      { w: 720, h: 520, x: 160, y: 45  },
     "netmap-win":       { w: 820, h: 600, x: 160, y: 20  },
     "devhelper-win":    { w: 820, h: 560, x: 140, y: 30  },
+    "lights-win":       { w: 520, h: 440, x: 250, y: 115 },
     "zigbeelogs-win":   { w: 780, h: 520, x: 180, y: 40  },
   },
 
@@ -339,6 +350,8 @@ const WM = {
       renderTelemetryChart(state.telemetrySpikes);
     if (id === "battery-win")
       renderBatteryChart(state.batteryItems);
+    if (id === "lights-win")
+      renderLightsList();
     if (id === "netmap-win")
       renderNetworkMap();
     if (id === "devhelper-win" && !state.devHelperDevices.length) {
@@ -646,6 +659,24 @@ function renderTelemetryLog(events, commandLog) {
   }
 }
 
+/* ----- Entity drag helper (drag row → desktop/folder) ----- */
+function _addEntityDrag(row, entity) {
+  row.addEventListener("dragstart", (e) => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = "copy";
+    const payload = {
+      entity_id: entity.entity_id,
+      friendly_name: entity.friendly_name || entity.entity_id,
+      state: entity.state || "unknown",
+      icon: entity.icon || "",
+    };
+    e.dataTransfer.setData("application/x-entity", JSON.stringify(payload));
+    e.dataTransfer.setData("text/plain", entity.entity_id);
+    row.classList.add("row-dragging");
+  });
+  row.addEventListener("dragend", () => row.classList.remove("row-dragging"));
+}
+
 /* ----- ZHA list ----- */
 function renderZhaList() {
   const host = $("zha-list");
@@ -666,6 +697,8 @@ function renderZhaList() {
       it.icon?.startsWith("mdi:") ? it.icon.replace(":", "-") : "mdi-zigbee";
     const row = document.createElement("div");
     row.className = "row";
+    row.draggable = true;
+    _addEntityDrag(row, it);
     const left = document.createElement("div");
     const title = document.createElement("div");
     title.className = "entity-title";
@@ -706,6 +739,8 @@ function renderSwitchList() {
   for (const it of items) {
     const row = document.createElement("div");
     row.className = "row";
+    row.draggable = true;
+    _addEntityDrag(row, it);
     const left = document.createElement("div");
     const title = document.createElement("div");
     title.className = "entity-title";
@@ -737,6 +772,60 @@ function renderSwitchList() {
     row.appendChild(left);
     row.appendChild(right);
     host.appendChild(row);
+  }
+}
+
+/* ----- Lights list ----- */
+function renderLightsList() {
+  const host = $("lights-list");
+  if (!host) return;
+  const q = ($("lights-search")?.value || "").trim().toLowerCase();
+  host.innerHTML = "";
+
+  const items = state.zhaItems
+    .filter((it) => it.entity_id.startsWith("light."))
+    .filter(
+      (it) =>
+        !q ||
+        `${it.entity_id} ${it.friendly_name || ""} ${it.state || ""}`
+          .toLowerCase()
+          .includes(q)
+    );
+
+  for (const it of items) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.draggable = true;
+    _addEntityDrag(row, it);
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "entity-title";
+    const icon = document.createElement("i");
+    icon.className = "mdi mdi-lightbulb";
+    title.appendChild(icon);
+    title.appendChild(
+      document.createTextNode(it.friendly_name || it.entity_id)
+    );
+    const sub = document.createElement("div");
+    sub.className = "entity-sub";
+    sub.textContent = it.entity_id;
+    left.appendChild(title);
+    left.appendChild(sub);
+
+    const right = document.createElement("div");
+    right.className = "right-actions";
+    right.appendChild(makeBadge(it.state));
+    right.appendChild(makeBtn("ON",  () => switchAction(it.entity_id, "turn_on")));
+    right.appendChild(makeBtn("OFF", () => switchAction(it.entity_id, "turn_off")));
+    right.appendChild(makeBtn("Toggle", () => switchAction(it.entity_id, "toggle"), "Toggle"));
+
+    row.appendChild(left);
+    row.appendChild(right);
+    host.appendChild(row);
+  }
+
+  if (!items.length) {
+    host.innerHTML = '<div class="row"><div class="entity-sub">No light entities found</div></div>';
   }
 }
 
@@ -834,7 +923,9 @@ function renderBatteryList() {
   for (const it of items) {
     const lvl = it.battery;
     const row = document.createElement("div");
-    row.className = "row";
+    const isSelected = state.batterySelected.has(it.entity_id);
+    row.className = "row" + (isSelected ? " battery-selected" : "");
+    row.style.cursor = "pointer";
 
     const left = document.createElement("div");
     const title = document.createElement("div");
@@ -858,6 +949,17 @@ function renderBatteryList() {
 
     row.appendChild(left);
     row.appendChild(badge);
+
+    row.addEventListener("click", () => {
+      if (state.batterySelected.has(it.entity_id)) {
+        state.batterySelected.delete(it.entity_id);
+      } else {
+        state.batterySelected.add(it.entity_id);
+      }
+      renderBatteryList();
+      renderBatteryChart(state.batteryItems);
+    });
+
     host.appendChild(row);
   }
 }
@@ -902,22 +1004,34 @@ function renderBatteryChart(items) {
   ctx.fillStyle = "#2b2b2b";
   ctx.fillRect(0, 0, w, h);
 
-  /* Show top 6 weakest devices with battery history */
-  const withHistory = items
-    .filter((it) => it.battery_history && it.battery_history.length > 1)
-    .sort((a, b) => (a.battery ?? 999) - (b.battery ?? 999))
-    .slice(0, 6);
+  /* If devices selected, show only those (with history); otherwise top 6 weakest */
+  let withHistory;
+  if (state.batterySelected.size > 0) {
+    withHistory = items
+      .filter((it) => state.batterySelected.has(it.entity_id) && it.battery_history && it.battery_history.length > 1)
+      .sort((a, b) => (a.battery ?? 999) - (b.battery ?? 999));
+  } else {
+    withHistory = items
+      .filter((it) => it.battery_history && it.battery_history.length > 1)
+      .sort((a, b) => (a.battery ?? 999) - (b.battery ?? 999))
+      .slice(0, 6);
+  }
 
   if (!withHistory.length) {
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${12 * dpr}px Segoe UI`;
-    ctx.fillText("No battery history data available", 14 * dpr, 22 * dpr);
+    if (state.batterySelected.size > 0) {
+      ctx.fillText("Selected devices have no battery history data", 14 * dpr, 22 * dpr);
+    } else {
+      ctx.fillText("No battery history data available", 14 * dpr, 22 * dpr);
+    }
     return;
   }
 
   const colors = ["#ff6b6b", "#fce100", "#60cdff", "#6ccb5f", "#da77f2", "#ff922b"];
-  const pad = { x: 36 * dpr, y: 24 * dpr };
-  const iw = w - 2 * pad.x, ih = h - 2 * pad.y;
+  const legendH = 18 * dpr;
+  const pad = { x: 36 * dpr, y: 24 * dpr, bottom: legendH + 10 * dpr };
+  const iw = w - 2 * pad.x, ih = h - pad.y - pad.bottom;
 
   /* Grid lines */
   ctx.strokeStyle = "rgba(255,255,255,0.06)";
@@ -948,17 +1062,19 @@ function renderBatteryChart(items) {
     ctx.stroke();
   });
 
-  /* Legend */
+  /* Legend at bottom */
   const legendY = h - 6 * dpr;
   let legendX = pad.x;
-  ctx.font = `${10 * dpr}px Segoe UI`;
+  ctx.font = `${9 * dpr}px Segoe UI`;
   withHistory.forEach((dev, di) => {
+    const label = (dev.friendly_name || dev.entity_id).slice(0, 18);
+    const textW = ctx.measureText(label).width;
+    if (legendX + textW + 16 * dpr > w - pad.x) return; // skip if no room
     ctx.fillStyle = colors[di % colors.length];
     ctx.fillRect(legendX, legendY - 8 * dpr, 10 * dpr, 3 * dpr);
     ctx.fillStyle = "#ffffffde";
-    const label = (dev.friendly_name || dev.entity_id).slice(0, 20);
     ctx.fillText(label, legendX + 14 * dpr, legendY - 2 * dpr);
-    legendX += ctx.measureText(label).width + 24 * dpr;
+    legendX += textW + 24 * dpr;
   });
 }
 
@@ -1551,10 +1667,58 @@ function initNetworkMap() {
     if (dragging) { dragging = false; canvas.style.cursor = "grab"; }
   });
 
-  // Double-click to reset view
-  canvas.addEventListener("dblclick", () => {
-    nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
-    renderNetworkMap();
+  // Double-click: if on a node — open device window; otherwise reset view
+  canvas.addEventListener("dblclick", (e) => {
+    if (!nm.nodes || !nm.nodes.length) {
+      nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
+      renderNetworkMap();
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const canvasX = (e.clientX - rect.left) * dpr;
+    const canvasY = (e.clientY - rect.top)  * dpr;
+    const cw = canvas.width, ch = canvas.height;
+    // Convert canvas device pixels → world_dpr space
+    const worldX = (canvasX - cw / 2 - nm.panX * dpr) / nm.zoom;
+    const worldY = (canvasY - ch / 2 - nm.panY * dpr) / nm.zoom;
+    // Hit radius: 24 CSS px converted to world_dpr space
+    const hitR = 24 * dpr / nm.zoom;
+
+    let hit = null;
+    for (const node of nm.nodes) {
+      const dx = node.x - worldX, dy = node.y - worldY;
+      if (dx * dx + dy * dy < hitR * hitR) { hit = node; break; }
+    }
+
+    if (hit) {
+      const dev = hit.dev;
+      // Build a synthetic entity so openDeviceDetail can match related entities by name slug
+      const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
+      const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      // Try to find an existing ZHA entity for this device
+      const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+      let entity = allItems.find(e => {
+        const n = (e.entity_id.split(".")[1] || "").toLowerCase();
+        return n === slug || n.startsWith(slug + "_") || (slug.length >= 4 && n.startsWith(slug.slice(0, Math.max(4, slug.length - 2))));
+      });
+      if (!entity) {
+        // Fallback: synthetic entity from device data
+        const iconCls = dev.device_type === "Router" ? "mdi:router-wireless" : "mdi:zigbee";
+        entity = {
+          entity_id: `device.${slug}`,
+          friendly_name: rawName,
+          state: dev.available === false ? "unavailable" : "online",
+          icon: iconCls,
+          lqi: _devLqi(dev),
+          _deviceRaw: dev,
+        };
+      }
+      openDeviceDetail(entity);
+    } else {
+      nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
+      renderNetworkMap();
+    }
   });
 }
 
@@ -1680,6 +1844,153 @@ function initSplitResizeBar(barId, topId, bottomId) {
     bar.classList.remove("dragging");
     document.body.style.userSelect = "";
     document.body.style.cursor = "";
+  });
+}
+
+/* ========================================================
+   HORIZONTAL SPLIT RESIZE BAR (DevHelper left/right panels)
+   ======================================================== */
+function initHResizeBar(barId, leftId, rightId) {
+  const bar = $(barId);
+  const left = $(leftId);
+  const right = $(rightId);
+  if (!bar || !left || !right) return;
+
+  let dragging = false, startX = 0, startW = 0;
+
+  bar.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = left.offsetWidth;
+    bar.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ew-resize";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const newW = Math.max(120, Math.min(500, startW + (e.clientX - startX)));
+    left.style.width = newW + "px";
+    left.style.flex = "none";
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    bar.classList.remove("dragging");
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  });
+}
+
+/* ========================================================
+   ENTITY SHORTCUTS ON DESKTOP (drag from list → desktop/folder)
+   ======================================================== */
+function renderEntityShortcuts() {
+  const desktop = $("desktop");
+  if (!desktop) return;
+  desktop.querySelectorAll(".desktop-entity-shortcut").forEach(el => el.remove());
+
+  for (const sc of state.entityShortcuts) {
+    const btn = document.createElement("button");
+    btn.className = "desktop-shortcut desktop-entity-shortcut";
+    btn.title = sc.entity_id;
+    btn.dataset.win = "entity_" + sc.entity_id; // key for position save
+    const iconCls = sc.icon?.startsWith("mdi:") ? sc.icon.replace(":", "-") : "mdi-zigbee";
+    btn.innerHTML =
+      `<div class="shortcut-icon"><i class="mdi ${iconCls}"></i></div>` +
+      `<span>${escapeHtml((sc.friendly_name || sc.entity_id).slice(0, 18))}</span>`;
+    btn.addEventListener("dblclick", () => {
+      openDeviceDetail({
+        entity_id: sc.entity_id,
+        friendly_name: sc.friendly_name,
+        state: sc.state,
+        icon: sc.icon,
+      });
+    });
+    // Restore saved position
+    const savedPos = state.iconPositions["entity_" + sc.entity_id];
+    if (savedPos) {
+      btn.style.position = "fixed";
+      btn.style.left = savedPos.x + "px";
+      btn.style.top  = savedPos.y + "px";
+    }
+    desktop.appendChild(btn);
+    window._makeIconDraggable?.(btn);
+  }
+}
+
+function initEntityDropTargets() {
+  const desktop = $("desktop");
+  if (!desktop) return;
+
+  // Helper: add entity shortcut
+  function addEntityShortcut(payload, dropX, dropY) {
+    const existing = state.entityShortcuts.findIndex(s => s.entity_id === payload.entity_id);
+    const sc = { ...payload, position: { x: dropX - 41, y: dropY - 41 } };
+    if (existing >= 0) {
+      state.entityShortcuts[existing] = sc;
+    } else {
+      state.entityShortcuts.push(sc);
+    }
+    localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
+    // Also save position in iconPositions
+    state.iconPositions["entity_" + payload.entity_id] = sc.position;
+    localStorage.setItem("zha_icon_positions", JSON.stringify(state.iconPositions));
+    renderEntityShortcuts();
+  }
+
+  desktop.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer.types.includes("application/x-entity")) return;
+    // Only allow if not hovering over a window
+    if (e.target.closest(".window")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    // Folder hover highlight
+    const folder = e.target.closest(".desktop-folder");
+    desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => {
+      if (f !== folder) f.classList.remove("drag-over");
+    });
+    if (folder) folder.classList.add("drag-over");
+  });
+
+  desktop.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget || !e.relatedTarget.closest(".desktop-folder")) {
+      desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => f.classList.remove("drag-over"));
+    }
+  });
+
+  desktop.addEventListener("drop", (e) => {
+    const raw = e.dataTransfer.getData("application/x-entity");
+    if (!raw) return;
+    // Remove folder hover highlights
+    desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => f.classList.remove("drag-over"));
+
+    let payload;
+    try { payload = JSON.parse(raw); } catch { return; }
+
+    e.preventDefault();
+
+    // Check drop on folder
+    const folder = e.target.closest(".desktop-folder");
+    if (folder) {
+      const folderId = folder.dataset.folderId;
+      const folderData = state.folders.find(f => f.id == folderId);
+      if (folderData) {
+        if (!folderData.entities) folderData.entities = [];
+        if (!folderData.entities.includes(payload.entity_id)) {
+          folderData.entities.push(payload.entity_id);
+          localStorage.setItem("zha_desktop_folders", JSON.stringify(state.folders));
+          renderDesktopFolders();
+        }
+        return;
+      }
+    }
+
+    // Drop on desktop background → create entity shortcut
+    if (!e.target.closest(".window")) {
+      addEntityShortcut(payload, e.clientX, e.clientY);
+    }
   });
 }
 
@@ -2513,6 +2824,7 @@ async function load() {
     renderBatteryList();
     renderBatteryChart(state.batteryItems);
     renderBatteryAlerts(state.batteryAlerts);
+    renderLightsList();
     renderNetworkMap();
     renderZigbeeLogs();
     renderZhaHealth();
@@ -2552,7 +2864,10 @@ document.addEventListener("DOMContentLoaded", () => {
     state.switchItems.map((s) => s.entity_id)
   );
   initAutocomplete("battery-notify-entity", "battery-notify-entity-list", () =>
-    state.notifyEntities.map((e) => e.entity_id)
+    state.notifyEntities.map((e) => ({
+      label: e.friendly_name ? `${e.friendly_name} (${e.entity_id})` : e.entity_id,
+      value: e.entity_id,
+    }))
   );
 
   /* Refresh button */
@@ -2568,6 +2883,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* Search inputs */
   $("zha-search")?.addEventListener("input", renderZhaList);
   $("switch-search")?.addEventListener("input", renderSwitchList);
+  $("lights-search")?.addEventListener("input", renderLightsList);
   $("battery-search")?.addEventListener("input", renderBatteryList);
 
   /* Form buttons */
@@ -2618,8 +2934,17 @@ document.addEventListener("DOMContentLoaded", () => {
   /* Telemetry split resize bar */
   initSplitResizeBar("telemetry-split-bar", "telemetry-top", "telemetry-bottom");
 
+  /* DevHelper horizontal split resize bar */
+  initHResizeBar("devhelper-resize-bar", "devhelper-left", "devhelper-right");
+
   /* Desktop icon drag & drop */
   initDesktopIconDrag();
+
+  /* Entity shortcuts from localStorage — render on startup */
+  renderEntityShortcuts();
+
+  /* Entity drag-to-desktop/folder drop targets */
+  initEntityDropTargets();
 
   /* Device Helper */
   $("devhelper-search")?.addEventListener("input", renderDevHelperDevices);

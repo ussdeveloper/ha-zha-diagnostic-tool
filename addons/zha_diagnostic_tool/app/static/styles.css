@@ -392,6 +392,7 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(85px, 1fr));
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .kpi {
@@ -410,8 +411,8 @@ body {
 /* ===== Canvas Charts ===== */
 #delay-chart {
   width: 100%;
-  height: 170px;
-  flex: none;
+  flex: 1;
+  min-height: 60px;
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: var(--radius-md);
@@ -430,8 +431,8 @@ body {
 
 #battery-chart {
   width: 100%;
-  height: 180px;
-  flex: none;
+  flex: 1;
+  min-height: 80px;
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: var(--radius-md);
@@ -931,8 +932,43 @@ button.danger:hover { background: #a62115; }
 /* ===== Device Helper Explorer ===== */
 .devhelper-body {
   display: flex;
-  gap: 8px;
+  gap: 0;
   overflow: hidden;
+}
+
+/* DevHelper horizontal resize bar */
+.devhelper-resize-bar {
+  width: 6px;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: ew-resize;
+  border-left: 1px solid var(--divider);
+  border-right: 1px solid var(--divider);
+  transition: background 0.15s;
+  position: relative;
+  z-index: 5;
+  margin: 0 1px;
+}
+.devhelper-resize-bar:hover,
+.devhelper-resize-bar.dragging {
+  background: rgba(96,205,255,0.18);
+  border-color: var(--accent);
+}
+.devhelper-resize-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background: var(--text-tert);
+  border-radius: 1px;
+  transition: background 0.15s, height 0.15s;
+}
+.devhelper-resize-bar:hover::after {
+  background: var(--accent);
+  height: 48px;
 }
 .devhelper-left {
   width: 260px;
@@ -940,6 +976,7 @@ button.danger:hover { background: #a62115; }
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-right: 4px;
 }
 .devhelper-right {
   flex: 1;
@@ -947,6 +984,7 @@ button.danger:hover { background: #a62115; }
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  padding-left: 4px;
 }
 .devhelper-info {
   padding: 10px 12px;
@@ -1117,4 +1155,34 @@ button.danger:hover { background: #a62115; }
 .desktop-shortcut[style*="position"],
 .desktop-folder[style*="position"] {
   position: fixed;
+}
+
+/* ===== Battery device selection (chart filter) ===== */
+.row.battery-selected {
+  background: rgba(96,205,255,0.1);
+  border-left: 3px solid var(--accent);
+}
+.row.battery-selected:hover { background: rgba(96,205,255,0.14); }
+
+/* Indicate rows are draggable */
+.row[draggable="true"] { cursor: grab; }
+.row[draggable="true"]:active { cursor: grabbing; }
+.row[draggable="true"].row-dragging { opacity: 0.55; }
+
+/* ===== Entity shortcut on desktop (same look as window shortcut) ===== */
+.desktop-entity-shortcut { /* inherits from .desktop-shortcut */ }
+.desktop-entity-shortcut .shortcut-icon { color: var(--accent); }
+
+/* Folder drop hover highlight */
+.desktop-folder.drag-over {
+  background: rgba(96,205,255,0.14);
+  border-color: var(--accent);
+}
+
+/* Battery-win chart select label */
+.battery-chart-hint {
+  font-size: 10px;
+  color: var(--text-tert);
+  flex-shrink: 0;
+  padding: 0 2px;
 }

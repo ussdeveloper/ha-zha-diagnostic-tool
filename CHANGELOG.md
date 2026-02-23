@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.2] - 2026-02-24
+
+### Added
+- Battery device chart selection, Lights window, map node dblclick, entity drag-to-desktop, DevHelper resize bar.
+
+### Fixed
+- KPI delay chart now fills window height (flex instead of fixed px).
+
 ## [0.9.1] - 2026-02-23
 
 ### Fixed

@@ -1,5 +1,19 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.2] - 2026-02-24
+
+### Added
+- **Battery Monitor — device selection**: click any battery device row to toggle it on the drain chart. Selected rows are highlighted. Empty selection shows top-6 weakest (original behavior).
+- **Battery Monitor — notify entity labels**: autocomplete now shows the HA mobile app friendly name next to the entity id.
+- **Lights window**: new standalone window listing all `light.*` entities with ON/OFF/Toggle controls; taskbar button added.
+- **Network Map — dblclick to open device**: double-click a node on the map to open the Device Detail window for that device. Double-click on empty area still resets view.
+- **DevHelper — horizontal resize bar**: drag the divider between the device list (left) and settings panel (right) to adjust the split.
+- **Entity drag to desktop/folder**: entity rows in ZHA, Switches, and Lights windows are now draggable. Drop onto the desktop to create a shortcut icon; drop onto a desktop folder to add the entity to that folder.
+
+### Fixed
+- **Dashboard KPI window — delay chart**: chart now grows to fill the full window height instead of being fixed at 170 px (`flex: 1` with `min-height: 60px`).
+- **Battery chart**: chart canvas now flex-grows with window (was fixed 180 px).
+
 ## [0.9.1] - 2026-02-23
 
 ### Fixed

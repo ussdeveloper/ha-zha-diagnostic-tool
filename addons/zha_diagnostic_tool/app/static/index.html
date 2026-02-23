@@ -128,6 +128,26 @@
       <div class="resize-handle"></div>
     </section>
 
+    <!-- Lights -->
+    <section class="window" id="lights-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-lightbulb win-icon"></i>
+        <span class="win-title">Lights</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="toolbar">
+          <input id="lights-search" placeholder="Search lights..." />
+        </div>
+        <div id="lights-list" class="list"></div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
     <!-- Telemetry -->
     <section class="window" id="telemetry-win">
       <div class="window-titlebar">
@@ -251,6 +271,7 @@
           <button class="accent" id="save-battery-alert-btn"><i class="mdi mdi-bell-plus"></i> Save Alert</button>
         </div>
         <div id="battery-alerts-list" class="list" style="max-height:80px;flex:none"></div>
+        <div class="battery-chart-hint"><i class="mdi mdi-cursor-default-click" style="color:var(--accent)"></i> Click device rows below to select/deselect on chart</div>
         <div id="battery-list" class="list"></div>
         <canvas id="battery-chart"></canvas>
       </div>
@@ -290,6 +311,7 @@
           <input id="devhelper-search" placeholder="Search ZHA devices..." />
           <div id="devhelper-device-list" class="list"></div>
         </div>
+        <div class="devhelper-resize-bar" id="devhelper-resize-bar"></div>
         <div class="devhelper-right">
           <div id="devhelper-device-info" class="devhelper-info">
             <span class="entity-sub">Select a device from the list</span>
@@ -351,6 +373,7 @@
       <button class="taskbar-app" data-win="kpi-win" title="Dashboard KPI"><i class="mdi mdi-chart-line"></i></button>
       <button class="taskbar-app" data-win="zha-win" title="ZHA Entities"><i class="mdi mdi-zigbee"></i></button>
       <button class="taskbar-app" data-win="switch-win" title="Switches"><i class="mdi mdi-toggle-switch"></i></button>
+      <button class="taskbar-app" data-win="lights-win" title="Lights"><i class="mdi mdi-lightbulb"></i></button>
       <button class="taskbar-app" data-win="telemetry-win" title="Telemetry"><i class="mdi mdi-pulse"></i></button>
       <button class="taskbar-app" data-win="mirror-win" title="Mirror Rules"><i class="mdi mdi-link-variant"></i></button>
       <button class="taskbar-app" data-win="sensor-win" title="Sensor Rules"><i class="mdi mdi-tune-variant"></i></button>
@@ -398,6 +421,6 @@
     </div>
   </div>
 
-  <script src="static/app.js?v=091"></script>
+  <script src="static/app.js?v=092"></script>
 </body>
 </html>
