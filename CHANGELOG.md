@@ -4,6 +4,12 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.3.2] - 2026-02-23
+
+### Fixed
+- Poprawiono integrację UI add-ona z HA Ingress (ścieżki względne dla API/static).
+- Dodano diagnostykę runtime w UI oraz poprawiono dostęp add-ona do HA API.
+
 ## [0.3.1] - 2026-02-23
 
 ### Fixed

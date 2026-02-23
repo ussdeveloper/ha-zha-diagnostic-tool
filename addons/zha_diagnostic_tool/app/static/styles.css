@@ -34,6 +34,22 @@ body {
   top: 0;
 }
 
+.status-bar {
+  border-bottom: 1px solid var(--line);
+  background: #202124;
+  color: var(--muted);
+  padding: 8px 16px;
+  font-size: 12px;
+}
+
+.status-bar.ok {
+  color: var(--good);
+}
+
+.status-bar.err {
+  color: var(--bad);
+}
+
 .title {
   font-weight: 600;
   font-size: 16px;

@@ -17,7 +17,7 @@ LOGGER = logging.getLogger("zha_diagnostic_ui")
 logging.basicConfig(level=logging.INFO)
 
 SUPERVISOR_API = "http://supervisor/core/api"
-SUPERVISOR_WS = "http://supervisor/core/websocket"
+SUPERVISOR_WS = "ws://supervisor/core/websocket"
 OPTIONS_PATH = Path("/data/options.json")
 RULES_PATH = Path("/config/zha_diagnostic_mirror_rules.json")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,6 +49,8 @@ class DiagnosticRuntime:
         self.recent_mirror_targets: dict[str, float] = {}
 
         self.mirror_rules: list[dict[str, Any]] = self._load_rules()
+        self.last_error: str | None = None
+        self.last_success_utc: str | None = None
 
         self.session: ClientSession | None = None
         self._poll_task: asyncio.Task | None = None
@@ -89,6 +91,8 @@ class DiagnosticRuntime:
         return {"Authorization": f"Bearer {self.token}"}
 
     async def start(self) -> None:
+        if not self.token:
+            self.last_error = "Brak SUPERVISOR_TOKEN (sprawdź homeassistant_api/hassio_api w config.yaml)"
         self.session = ClientSession(headers=self.auth_headers)
         self._poll_task = asyncio.create_task(self._poll_loop(), name="poll_states")
         self._ws_task = asyncio.create_task(self._ws_loop(), name="ha_events")
@@ -107,7 +111,9 @@ class DiagnosticRuntime:
         while True:
             try:
                 await self.refresh_states()
+                self.last_error = None
             except Exception as exc:  # noqa: BLE001
+                self.last_error = str(exc)
                 LOGGER.warning("State poll error: %s", exc)
             await asyncio.sleep(self.poll_interval_seconds)
 
@@ -146,6 +152,7 @@ class DiagnosticRuntime:
 
         self.states = states
         self.zigbee_entities = sorted(zigbee_entities, key=lambda e: e["entity_id"])
+        self.last_success_utc = datetime.now(tz=UTC).isoformat()
 
     async def _ws_loop(self) -> None:
         """Subscribe to HA events for accurate command->ack delay metrics and mirror logic."""
@@ -155,6 +162,7 @@ class DiagnosticRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                self.last_error = str(exc)
                 LOGGER.warning("WS loop error: %s", exc)
             await asyncio.sleep(2)
 
@@ -333,6 +341,11 @@ class DiagnosticRuntime:
 
         return {
             "theme": self.grafana_theme,
+            "runtime": {
+                "token_present": bool(self.token),
+                "last_error": self.last_error,
+                "last_success_utc": self.last_success_utc,
+            },
             "summary": {
                 "zigbee_entities": zigbee_count,
                 "zigbee_switches": len(switches),

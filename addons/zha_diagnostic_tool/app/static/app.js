@@ -17,6 +17,12 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+function setStatus(text, cls = "") {
+  const node = $("status-bar");
+  node.textContent = text;
+  node.className = `status-bar ${cls}`.trim();
+}
+
 function setSummary(summary) {
   $("kpi-entities").textContent = summary.zigbee_entities ?? "-";
   $("kpi-switches").textContent = summary.zigbee_switches ?? "-";
@@ -78,7 +84,7 @@ function renderRules(rules) {
     del.className = "ghost";
     del.textContent = "Usuń";
     del.onclick = async () => {
-      await api(`/api/mirror-rules/${encodeURIComponent(rule.id)}`, { method: "DELETE" });
+      await api(`api/mirror-rules/${encodeURIComponent(rule.id)}`, { method: "DELETE" });
       await load();
     };
 
@@ -146,7 +152,7 @@ function renderDelayChart(samples) {
 }
 
 async function switchAction(entityId, action) {
-  await api("/api/switch-action", {
+  await api("api/switch-action", {
     method: "POST",
     body: JSON.stringify({ entity_id: entityId, action }),
   });
@@ -162,7 +168,7 @@ async function addRule() {
     return;
   }
 
-  await api("/api/mirror-rules", {
+  await api("api/mirror-rules", {
     method: "POST",
     body: JSON.stringify({ source, target, bidirectional }),
   });
@@ -172,8 +178,8 @@ async function addRule() {
 
 async function load() {
   const [dashboard, switches] = await Promise.all([
-    api("/api/dashboard"),
-    api("/api/switches"),
+    api("api/dashboard"),
+    api("api/switches"),
   ]);
 
   state.dashboard = dashboard;
@@ -185,16 +191,40 @@ async function load() {
   renderDevices(dashboard.zigbee_devices || []);
   renderDelayChart(dashboard.delay_samples || []);
 
+  if (dashboard.runtime?.last_error) {
+    setStatus(`Błąd backendu: ${dashboard.runtime.last_error}`, "err");
+  } else {
+    setStatus(
+      `Połączono z HA API • token: ${dashboard.runtime?.token_present ? "OK" : "BRAK"} • zigbee: ${dashboard.summary?.zigbee_entities ?? 0}`,
+      "ok"
+    );
+  }
+
   $("updated-at").textContent = new Date().toLocaleTimeString();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   $("refresh-btn").addEventListener("click", async () => {
-    await api("/api/refresh", { method: "POST" });
-    await load();
+    try {
+      await api("api/refresh", { method: "POST" });
+      await load();
+    } catch (error) {
+      setStatus(`Refresh failed: ${error.message}`, "err");
+    }
   });
   $("add-rule-btn").addEventListener("click", addRule);
 
-  await load();
-  setInterval(load, 5000);
+  try {
+    await load();
+  } catch (error) {
+    setStatus(`Load failed: ${error.message}`, "err");
+  }
+
+  setInterval(async () => {
+    try {
+      await load();
+    } catch (error) {
+      setStatus(`Auto-refresh failed: ${error.message}`, "err");
+    }
+  }, 5000);
 });

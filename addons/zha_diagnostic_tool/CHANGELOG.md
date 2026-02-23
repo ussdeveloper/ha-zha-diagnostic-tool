@@ -1,5 +1,13 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.2.2] - 2026-02-23
+
+### Fixed
+- Naprawa ścieżek UI pod Home Assistant Ingress (relatywne `api/*` i `static/*`).
+- Dodano status połączenia i błędów backendu bezpośrednio w UI.
+- Włączono wymagane uprawnienia `hassio_api` i `homeassistant_api`.
+- Korekta URL websocket do `ws://supervisor/core/websocket`.
+
 ## [0.2.1] - 2026-02-23
 
 ### Fixed
