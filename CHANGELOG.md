@@ -4,6 +4,14 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.4.1] - 2026-02-23
+
+### Added
+- Okno Telemetria (spike chart + live log eventów ZHA).
+
+### Fixed
+- Stabilizacja frontendu add-ona i usunięcie błędu `innerHTML` na null.
+
 ## [0.4.0] - 2026-02-23
 
 ### Added

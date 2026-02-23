@@ -51,6 +51,16 @@ class DiagnosticRuntime:
         self.sensor_entities: list[dict[str, Any]] = []
 
         self.delay_samples: deque[dict[str, Any]] = deque(maxlen=self.max_delay_samples)
+        self.telemetry_log: deque[dict[str, Any]] = deque(maxlen=500)
+        self.telemetry_bins: deque[dict[str, Any]] = deque(maxlen=240)
+        self._telemetry_current_second: int | None = None
+        self._telemetry_current_counts: dict[str, int] = {
+            "zha": 0,
+            "state": 0,
+            "call": 0,
+            "log_error": 0,
+            "other": 0,
+        }
         self.pending: dict[str, PendingSwitchCommand] = {}
         self.recent_mirror_targets: dict[str, float] = {}
         self.recent_sensor_actions: dict[str, float] = {}
@@ -215,6 +225,8 @@ class DiagnosticRuntime:
 
             await ws.send_json({"id": 1, "type": "subscribe_events", "event_type": "call_service"})
             await ws.send_json({"id": 2, "type": "subscribe_events", "event_type": "state_changed"})
+            await ws.send_json({"id": 3, "type": "subscribe_events", "event_type": "zha_event"})
+            await ws.send_json({"id": 4, "type": "subscribe_events", "event_type": "system_log_event"})
 
             while True:
                 msg = await ws.receive(timeout=60)
@@ -231,10 +243,85 @@ class DiagnosticRuntime:
         event_type = event.get("event_type")
         event_data = event.get("data", {})
 
+        self._record_telemetry_event(event_type=event_type, event_data=event_data)
+
         if event_type == "call_service":
             self._handle_call_service(event_data)
         elif event_type == "state_changed":
             await self._handle_state_changed(event_data)
+
+    def _record_telemetry_event(self, event_type: Any, event_data: dict[str, Any]) -> None:
+        event_name = str(event_type or "unknown")
+        now = datetime.now(tz=UTC)
+        now_sec = int(now.timestamp())
+
+        category = "other"
+        if event_name == "zha_event":
+            category = "zha"
+        elif event_name == "state_changed":
+            category = "state"
+        elif event_name == "call_service":
+            category = "call"
+        elif event_name == "system_log_event":
+            level = str(event_data.get("level", "")).lower()
+            category = "log_error" if level in {"error", "warning", "critical"} else "other"
+
+        if self._telemetry_current_second is None:
+            self._telemetry_current_second = now_sec
+
+        if now_sec != self._telemetry_current_second:
+            self.telemetry_bins.append(
+                {
+                    "ts": datetime.fromtimestamp(self._telemetry_current_second, tz=UTC).isoformat(),
+                    **self._telemetry_current_counts,
+                }
+            )
+            self._telemetry_current_second = now_sec
+            self._telemetry_current_counts = {"zha": 0, "state": 0, "call": 0, "log_error": 0, "other": 0}
+
+        self._telemetry_current_counts[category] = self._telemetry_current_counts.get(category, 0) + 1
+
+        summary = self._summarize_event(event_name, event_data)
+        self.telemetry_log.append(
+            {
+                "ts": now.isoformat(),
+                "type": event_name,
+                "category": category,
+                "summary": summary,
+            }
+        )
+
+    @staticmethod
+    def _summarize_event(event_name: str, event_data: dict[str, Any]) -> str:
+        if event_name == "state_changed":
+            entity_id = event_data.get("entity_id")
+            new_state = (event_data.get("new_state") or {}).get("state")
+            return f"{entity_id} -> {new_state}"
+        if event_name == "call_service":
+            domain = event_data.get("domain")
+            service = event_data.get("service")
+            target = (event_data.get("service_data") or {}).get("entity_id")
+            return f"{domain}.{service} {target}"
+        if event_name == "zha_event":
+            device_ieee = event_data.get("device_ieee")
+            command = event_data.get("command")
+            return f"ieee={device_ieee} cmd={command}"
+        if event_name == "system_log_event":
+            level = event_data.get("level")
+            message = str(event_data.get("message", ""))[:120]
+            return f"{level}: {message}"
+        return json.dumps(event_data, ensure_ascii=False)[:160]
+
+    def _telemetry_bins_with_current(self) -> list[dict[str, Any]]:
+        bins = list(self.telemetry_bins)
+        if self._telemetry_current_second is not None:
+            bins.append(
+                {
+                    "ts": datetime.fromtimestamp(self._telemetry_current_second, tz=UTC).isoformat(),
+                    **self._telemetry_current_counts,
+                }
+            )
+        return bins[-180:]
 
     def _handle_call_service(self, event_data: dict[str, Any]) -> None:
         domain = event_data.get("domain")
@@ -433,6 +520,10 @@ class DiagnosticRuntime:
                 "delay_max_ms": delay_max,
             },
             "delay_samples": samples[-180:],
+            "telemetry": {
+                "spikes": self._telemetry_bins_with_current(),
+                "events": list(self.telemetry_log)[-200:],
+            },
             "mirror_rules": self.mirror_rules,
             "sensor_rules": self.sensor_rules,
             "zigbee_devices": self.zigbee_entities,

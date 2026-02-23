@@ -1,5 +1,17 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.3.1] - 2026-02-23
+
+### Added
+- Nowe okno Telemetria podzielone horyzontalnie:
+	- góra: wykres spike eventów (ZHA/state/call/log errors) w czasie rzeczywistym,
+	- dół: log eventów ZHA/systemowych na żywo.
+
+### Fixed
+- Naprawa crasha UI: `Cannot set properties of null (setting 'innerHTML')`.
+- Uodpornienie frontendu na brakujące elementy DOM (null-safe rendering).
+- Rebalans layoutu desktop, aby okna były czytelniejsze i stabilniejsze.
+
 ## [0.3.0] - 2026-02-23
 
 ### Added

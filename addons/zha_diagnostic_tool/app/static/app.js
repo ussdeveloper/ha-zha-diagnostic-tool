@@ -3,9 +3,24 @@ const state = {
   zhaItems: [],
   switchItems: [],
   sensorItems: [],
+  telemetrySpikes: [],
+  telemetryEvents: [],
 };
 
 const $ = (id) => document.getElementById(id);
+const safeEl = (id) => $(id);
+
+function setText(id, value) {
+  const el = safeEl(id);
+  if (!el) return;
+  el.textContent = value;
+}
+
+function setHTML(id, value) {
+  const el = safeEl(id);
+  if (!el) return;
+  el.innerHTML = value;
+}
 
 const mdi = {
   zigbee: "mdi-zigbee",
@@ -28,25 +43,28 @@ async function api(path, options = {}) {
 }
 
 function setStatus(text, cls = "") {
-  const node = $("status-bar");
+  const node = safeEl("status-bar");
+  if (!node) return;
   node.textContent = text;
   node.className = `status-bar ${cls}`.trim();
 }
 
 function setSummary(summary) {
-  $("kpi-entities").textContent = summary.zigbee_entities ?? "-";
-  $("kpi-switches").textContent = summary.switches_total ?? summary.zigbee_switches ?? "-";
-  $("kpi-rules").textContent = summary.mirror_rules ?? "-";
-  $("kpi-srules").textContent = summary.sensor_rules ?? "-";
-  $("kpi-avg").textContent = summary.delay_avg_ms == null ? "-" : `${summary.delay_avg_ms} ms`;
-  $("kpi-p95").textContent = summary.delay_p95_ms == null ? "-" : `${summary.delay_p95_ms} ms`;
-  $("kpi-max").textContent = summary.delay_max_ms == null ? "-" : `${summary.delay_max_ms} ms`;
-  $("kpi-pending").textContent = summary.pending_commands ?? "-";
+  setText("kpi-entities", summary.zigbee_entities ?? "-");
+  setText("kpi-switches", summary.switches_total ?? summary.zigbee_switches ?? "-");
+  setText("kpi-rules", summary.mirror_rules ?? "-");
+  setText("kpi-srules", summary.sensor_rules ?? "-");
+  setText("kpi-avg", summary.delay_avg_ms == null ? "-" : `${summary.delay_avg_ms} ms`);
+  setText("kpi-p95", summary.delay_p95_ms == null ? "-" : `${summary.delay_p95_ms} ms`);
+  setText("kpi-max", summary.delay_max_ms == null ? "-" : `${summary.delay_max_ms} ms`);
+  setText("kpi-pending", summary.pending_commands ?? "-");
 }
 
 function renderDelayChart(samples) {
   const canvas = $("delay-chart");
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
+  if (!ctx) return;
 
   const width = canvas.width;
   const height = canvas.height;
@@ -98,6 +116,84 @@ function renderDelayChart(samples) {
   ctx.fillText(`max ${max.toFixed(0)} ms`, width - 120, 16);
 }
 
+function renderTelemetryChart(spikes) {
+  const canvas = safeEl("telemetry-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.fillStyle = "#0f131c";
+  ctx.fillRect(0, 0, width, height);
+
+  const data = (spikes || []).slice(-120);
+  if (!data.length) {
+    ctx.fillStyle = "#9aa4b2";
+    ctx.font = "13px Segoe UI";
+    ctx.fillText("Brak eventów telemetrycznych", 14, 24);
+    return;
+  }
+
+  const series = {
+    zha: { color: "#4ea1ff", values: data.map((d) => d.zha || 0) },
+    state: { color: "#33d17a", values: data.map((d) => d.state || 0) },
+    call: { color: "#f6d365", values: data.map((d) => d.call || 0) },
+    log_error: { color: "#ff6b6b", values: data.map((d) => d.log_error || 0) },
+  };
+
+  const all = Object.values(series).flatMap((s) => s.values);
+  const max = Math.max(1, ...all);
+  const padX = 30;
+  const padY = 16;
+  const innerW = width - 2 * padX;
+  const innerH = height - 2 * padY;
+
+  ctx.strokeStyle = "#223046";
+  for (let i = 0; i <= 4; i++) {
+    const y = padY + (innerH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(width - padX, y);
+    ctx.stroke();
+  }
+
+  Object.values(series).forEach((s) => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    s.values.forEach((v, i) => {
+      const x = padX + (i / Math.max(s.values.length - 1, 1)) * innerW;
+      const y = height - padY - (v / max) * innerH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+}
+
+function renderTelemetryLog(events) {
+  const host = safeEl("telemetry-log");
+  if (!host) return;
+  host.innerHTML = "";
+
+  const rows = (events || []).slice(-200).reverse();
+  for (const ev of rows) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <div>
+        <div class="entity-title"><i class="mdi mdi-flash"></i>${ev.type || "event"}</div>
+        <div class="entity-sub">${ev.summary || "-"}</div>
+      </div>
+      <div class="entity-sub">${ev.ts || "-"}</div>
+    `;
+    host.appendChild(row);
+  }
+}
+
 function rowRightActions(entityId, stateText, allowToggle = false) {
   const host = document.createElement("div");
   host.className = "right-actions";
@@ -119,8 +215,10 @@ function rowRightActions(entityId, stateText, allowToggle = false) {
 }
 
 function renderZhaList() {
-  const query = ($("zha-search").value || "").trim().toLowerCase();
-  const host = $("zha-list");
+  const searchEl = safeEl("zha-search");
+  const host = safeEl("zha-list");
+  if (!host) return;
+  const query = ((searchEl && searchEl.value) || "").trim().toLowerCase();
   host.innerHTML = "";
 
   const items = state.zhaItems.filter((item) => {
@@ -146,8 +244,10 @@ function renderZhaList() {
 }
 
 function renderSwitchList() {
-  const query = ($("switch-search").value || "").trim().toLowerCase();
-  const host = $("switch-list");
+  const searchEl = safeEl("switch-search");
+  const host = safeEl("switch-list");
+  if (!host) return;
+  const query = ((searchEl && searchEl.value) || "").trim().toLowerCase();
   host.innerHTML = "";
 
   const items = state.switchItems.filter((item) => {
@@ -190,13 +290,14 @@ function renderSwitchList() {
   for (const item of state.switchItems) {
     switchOptions.push(`<option value="${item.entity_id}">${item.entity_id}</option>`);
   }
-  $("mirror-source").innerHTML = switchOptions.join("");
-  $("mirror-target").innerHTML = switchOptions.join("");
-  $("sensor-switch").innerHTML = switchOptions.join("");
+  setHTML("mirror-source", switchOptions.join(""));
+  setHTML("mirror-target", switchOptions.join(""));
+  setHTML("sensor-switch", switchOptions.join(""));
 }
 
 function renderMirrorRules(rules) {
-  const host = $("rules-list");
+  const host = safeEl("rules-list");
+  if (!host) return;
   host.innerHTML = "";
 
   for (const rule of rules) {
@@ -223,7 +324,8 @@ function renderMirrorRules(rules) {
 }
 
 function renderSensorRules(rules) {
-  const host = $("sensor-rules-list");
+  const host = safeEl("sensor-rules-list");
+  if (!host) return;
   host.innerHTML = "";
 
   for (const rule of rules) {
@@ -254,7 +356,7 @@ function renderSensorOptions() {
   for (const item of state.sensorItems) {
     options.push(`<option value="${item.entity_id}">${item.entity_id}</option>`);
   }
-  $("sensor-entity").innerHTML = options.join("");
+  setHTML("sensor-entity", options.join(""));
 }
 
 async function switchAction(entityId, action) {
@@ -265,9 +367,9 @@ async function switchAction(entityId, action) {
 }
 
 async function addMirrorRule() {
-  const source = $("mirror-source").value;
-  const target = $("mirror-target").value;
-  const bidirectional = $("mirror-bidirectional").checked;
+  const source = (safeEl("mirror-source") || {}).value;
+  const target = (safeEl("mirror-target") || {}).value;
+  const bidirectional = Boolean((safeEl("mirror-bidirectional") || {}).checked);
 
   if (!source || !target || source === target) {
     alert("Wybierz dwa różne switche");
@@ -283,12 +385,12 @@ async function addMirrorRule() {
 }
 
 async function addSensorRule() {
-  const sensor_entity = $("sensor-entity").value;
-  const switch_entity = $("sensor-switch").value;
-  const minRaw = $("sensor-min").value;
-  const maxRaw = $("sensor-max").value;
-  const action_in_range = $("sensor-in-action").value;
-  const action_out_of_range = $("sensor-out-action").value;
+  const sensor_entity = (safeEl("sensor-entity") || {}).value;
+  const switch_entity = (safeEl("sensor-switch") || {}).value;
+  const minRaw = (safeEl("sensor-min") || {}).value ?? "";
+  const maxRaw = (safeEl("sensor-max") || {}).value ?? "";
+  const action_in_range = (safeEl("sensor-in-action") || {}).value;
+  const action_out_of_range = (safeEl("sensor-out-action") || {}).value;
 
   if (!sensor_entity || !switch_entity) {
     alert("Wybierz sensor i switch");
@@ -321,6 +423,8 @@ async function load() {
   state.zhaItems = dashboard.zigbee_devices || [];
   state.switchItems = dashboard.switches || [];
   state.sensorItems = dashboard.sensors || [];
+  state.telemetrySpikes = dashboard.telemetry?.spikes || [];
+  state.telemetryEvents = dashboard.telemetry?.events || [];
 
   setSummary(dashboard.summary || {});
   renderDelayChart(dashboard.delay_samples || []);
@@ -329,6 +433,8 @@ async function load() {
   renderMirrorRules(dashboard.mirror_rules || []);
   renderSensorOptions();
   renderSensorRules(dashboard.sensor_rules || []);
+  renderTelemetryChart(state.telemetrySpikes);
+  renderTelemetryLog(state.telemetryEvents);
 
   if (dashboard.runtime?.last_error) {
     setStatus(`Błąd backendu: ${dashboard.runtime.last_error}`, "err");
@@ -339,11 +445,12 @@ async function load() {
     );
   }
 
-  $("updated-at").textContent = new Date().toLocaleTimeString();
+  setText("updated-at", new Date().toLocaleTimeString());
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  $("refresh-btn").addEventListener("click", async () => {
+  const refreshBtn = safeEl("refresh-btn");
+  if (refreshBtn) refreshBtn.addEventListener("click", async () => {
     try {
       await api("api/refresh", { method: "POST" });
       await load();
@@ -352,10 +459,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  $("zha-search").addEventListener("input", renderZhaList);
-  $("switch-search").addEventListener("input", renderSwitchList);
+  const zhaSearch = safeEl("zha-search");
+  const switchSearch = safeEl("switch-search");
+  if (zhaSearch) zhaSearch.addEventListener("input", renderZhaList);
+  if (switchSearch) switchSearch.addEventListener("input", renderSwitchList);
 
-  $("add-rule-btn").addEventListener("click", async () => {
+  const addRuleBtn = safeEl("add-rule-btn");
+  if (addRuleBtn) addRuleBtn.addEventListener("click", async () => {
     try {
       await addMirrorRule();
     } catch (error) {
@@ -363,7 +473,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  $("add-sensor-rule-btn").addEventListener("click", async () => {
+  const addSensorRuleBtn = safeEl("add-sensor-rule-btn");
+  if (addSensorRuleBtn) addSensorRuleBtn.addEventListener("click", async () => {
     try {
       await addSensorRule();
     } catch (error) {
