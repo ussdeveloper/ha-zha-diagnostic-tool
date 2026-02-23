@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.8.0) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.0) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -21,6 +21,10 @@ const state = {
   devHelperDevices: [],
   devHelperSelected: null,
   devHelperKeepAlive: [],
+  zigbeeErrorLog: [],
+  zigbeeLogsPaused: false,
+  zhaDevicesFull: [],
+  iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
 };
 
 /* ---------- DOM helpers (null-safe) ---------- */
@@ -198,15 +202,16 @@ const WM = {
 
   /* Default size & position — cascade from top-left */
   defaults: {
-    "kpi-win":       { w: 840, h: 320, x: 130, y: 15  },
-    "zha-win":       { w: 520, h: 440, x: 170, y: 55  },
-    "switch-win":    { w: 580, h: 400, x: 210, y: 95  },
-    "telemetry-win": { w: 680, h: 480, x: 250, y: 35  },
-    "mirror-win":    { w: 580, h: 340, x: 290, y: 135 },
-    "sensor-win":    { w: 620, h: 360, x: 330, y: 75  },
-    "battery-win":   { w: 720, h: 520, x: 160, y: 45  },
-    "netmap-win":    { w: 700, h: 560, x: 200, y: 25  },
-    "devhelper-win": { w: 820, h: 560, x: 140, y: 30  },
+    "kpi-win":          { w: 840, h: 320, x: 130, y: 15  },
+    "zha-win":          { w: 520, h: 440, x: 170, y: 55  },
+    "switch-win":       { w: 580, h: 400, x: 210, y: 95  },
+    "telemetry-win":    { w: 680, h: 480, x: 250, y: 35  },
+    "mirror-win":       { w: 580, h: 340, x: 290, y: 135 },
+    "sensor-win":       { w: 620, h: 360, x: 330, y: 75  },
+    "battery-win":      { w: 720, h: 520, x: 160, y: 45  },
+    "netmap-win":       { w: 820, h: 600, x: 160, y: 20  },
+    "devhelper-win":    { w: 820, h: 560, x: 140, y: 30  },
+    "zigbeelogs-win":   { w: 780, h: 520, x: 180, y: 40  },
   },
 
   init() {
@@ -339,6 +344,8 @@ const WM = {
       loadDevHelperDevices();
       loadDevHelperKeepAlive();
     }
+    if (id === "zigbeelogs-win")
+      renderZigbeeLogs();
   },
 
   _updateTaskbar() {
@@ -666,7 +673,7 @@ function renderZhaList() {
     left.appendChild(sub);
     row.appendChild(left);
     row.appendChild(makeBadge(it.state));
-    row.addEventListener("dblclick", () => openDeviceDetail(it));
+    row.addEventListener("click", () => openDeviceDetail(it));
     row.style.cursor = "pointer";
     host.appendChild(row);
   }
@@ -984,77 +991,62 @@ function renderBatteryAlerts(alerts) {
 }
 
 /* ========================================================
-   DEVICE DETAIL (Dynamic Window on double-click)
+   DEVICE DETAIL (Dynamic Window on click — shows ALL entities for the device)
    ======================================================== */
 function openDeviceDetail(entityItem) {
-  const winId = `dev-${++state.deviceWinCount}`;
   const eid = entityItem.entity_id;
 
-  /* Find related entities by device prefix heuristic */
+  // Find device key from entity_id (strip domain and known suffixes)
   const parts = eid.split(".", 2);
   const namePart = parts.length > 1 ? parts[1] : eid;
   let deviceKey = namePart;
   const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
     "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
-    "_contact", "_vibration", "_rssi", "_lqi", "_linkquality"];
+    "_contact", "_vibration", "_rssi", "_lqi", "_linkquality",
+    "_alarm", "_tamper", "_trigger", "_action", "_click", "_event",
+    "_level", "_color_temp", "_brightness", "_voltage", "_current"];
   for (const sfx of suffixes) {
     if (namePart.endsWith(sfx)) { deviceKey = namePart.slice(0, -sfx.length); break; }
   }
 
-  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
-  const related = allEntities.filter(e => e.entity_id.includes(deviceKey));
-  const unique = [...new Map(related.map(e => [e.entity_id, e])).values()];
+  // Reuse existing window if device already open
+  const existingId = `dev-${deviceKey.replace(/[^a-z0-9_]/gi, "_")}`;
+  if ($(existingId)) { WM.open(existingId); WM.focus(existingId); return; }
 
-  /* Related telemetry */
+  const winId = existingId;
+  ++state.deviceWinCount;
+
+  // All entities for this device
+  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+  const related = allEntities.filter(e => {
+    const ep = e.entity_id.split(".", 2);
+    const en = ep.length > 1 ? ep[1] : ep[0];
+    return en === deviceKey || en.startsWith(deviceKey + "_");
+  });
+  const unique = [...new Map(related.map(e => [e.entity_id, e])).values()];
+  if (!unique.find(e => e.entity_id === eid)) unique.unshift(entityItem);
+
+  // Related telemetry
   const deviceEvents = state.telemetryEvents
     .filter(ev => (ev.summary || "").includes(deviceKey))
-    .slice(-20);
+    .slice(-30);
   const deviceCommands = state.commandLog
     .filter(cmd => cmd.entity_id && cmd.entity_id.includes(deviceKey))
-    .slice(-20);
+    .slice(-30);
 
   const iconCls = entityItem.icon?.startsWith("mdi:") ? entityItem.icon.replace(":", "-") : "mdi-zigbee";
-
-  /* Build entities HTML */
-  let entitiesHtml = "";
-  for (const e of unique) {
-    const lqiStr = e.lqi != null ? ` \u00B7 LQI: ${e.lqi}` : "";
-    const ic = e.icon?.startsWith("mdi:") ? e.icon.replace(":", "-") : "mdi-zigbee";
-    entitiesHtml += `<div class="row"><div>` +
-      `<div class="entity-title"><i class="mdi ${ic}"></i> ${escapeHtml(e.friendly_name || e.entity_id)}</div>` +
-      `<div class="entity-sub">${escapeHtml(e.entity_id)}${lqiStr} \u00B7 ${fmtDate(e.last_updated)}</div>` +
-      `</div><span class="badge ${e.state === "on" ? "on" : e.state === "off" ? "off" : "mid"}">${escapeHtml(e.state || "-")}</span></div>`;
-  }
-
-  /* Build activity log HTML */
-  const logItems = [
-    ...deviceEvents.map(ev => ({ ...ev, _src: "event" })),
-    ...deviceCommands.map(cmd => ({
-      type: "command",
-      summary: `${cmd.action} \u2192 ${cmd.entity_id} ${cmd.status === "confirmed" ? `(${cmd.delay_ms}ms)` : cmd.status === "timeout" ? "TIMEOUT" : ""}`,
-      ts: cmd.ts, _src: "cmd", _status: cmd.status,
-    }))
-  ].sort((a, b) => (b.ts || "").localeCompare(a.ts || "")).slice(0, 30);
-
-  let logHtml = "";
-  for (const ev of logItems) {
-    const cls = ev._src === "cmd" ? `cmd-${ev._status || "sent"}` : "";
-    const ic2 = ev._src === "cmd"
-      ? (ev._status === "confirmed" ? "mdi-check-circle" : ev._status === "timeout" ? "mdi-alert-circle" : "mdi-send")
-      : "mdi-flash";
-    logHtml += `<div class="row ${cls}"><div>` +
-      `<div class="entity-title"><i class="mdi ${ic2}"></i> ${escapeHtml(ev.type || "event")}</div>` +
-      `<div class="entity-sub">${escapeHtml(ev.summary || "-")}</div>` +
-      `</div><div class="entity-sub">${fmtDate(ev.ts)}</div></div>`;
-  }
+  const deviceName = entityItem.friendly_name
+    ? entityItem.friendly_name.replace(/\s+(temperature|humidity|battery|motion|power|energy|level|contact|vibration|lqi|rssi)$/i, "").trim()
+    : deviceKey;
 
   const win = document.createElement("section");
   win.className = "window";
   win.id = winId;
+
   win.innerHTML = `
     <div class="window-titlebar">
       <i class="mdi ${iconCls} win-icon"></i>
-      <span class="win-title">${escapeHtml(entityItem.friendly_name || eid)}</span>
+      <span class="win-title">${escapeHtml(deviceName)}</span>
       <div class="window-controls">
         <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
         <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -1065,24 +1057,29 @@ function openDeviceDetail(entityItem) {
       <div class="device-header">
         <i class="mdi ${iconCls} dev-icon"></i>
         <div class="dev-info">
-          <div class="dev-name">${escapeHtml(entityItem.friendly_name || eid)}</div>
-          <div class="dev-id">${escapeHtml(eid)}${entityItem.lqi != null ? " \u00B7 LQI: " + entityItem.lqi : ""}</div>
+          <div class="dev-name">${escapeHtml(deviceName)}</div>
+          <div class="dev-id">${escapeHtml(eid)}${entityItem.lqi != null ? " · LQI: " + entityItem.lqi : ""}</div>
         </div>
       </div>
-      <div class="list" style="flex:1;min-height:0">${entitiesHtml || '<div class="row"><div class="entity-sub">No related entities</div></div>'}</div>
-      <div style="font-size:12px;color:var(--text-sec);margin-top:4px">Activity Log</div>
-      <div class="list" style="flex:1;min-height:0;max-height:150px">${logHtml || '<div class="row"><div class="entity-sub">No activity recorded</div></div>'}</div>
+      <div style="font-size:11px;color:var(--text-sec);padding:2px 0 2px 2px;flex-shrink:0">
+        <i class="mdi mdi-format-list-bulleted" style="color:var(--accent)"></i>
+        All entities for this device (${unique.length})
+      </div>
+      <div id="${winId}-entities" class="list" style="flex:1;min-height:80px"></div>
+      <div style="font-size:11px;color:var(--text-sec);padding:2px 0 2px 2px;flex-shrink:0">
+        <i class="mdi mdi-history" style="color:var(--accent)"></i> Activity Log
+      </div>
+      <div id="${winId}-log" class="list" style="flex:1;min-height:60px;max-height:160px"></div>
     </div>
     <div class="resize-handle"></div>`;
 
   $("desktop").appendChild(win);
-
-  const offset = state.deviceWinCount * 24;
-  WM.defaults[winId] = { w: 500, h: 460, x: 180 + offset, y: 50 + offset };
-  win.style.width = "500px";
-  win.style.height = "460px";
-  win.style.left = (180 + offset) + "px";
-  win.style.top = (50 + offset) + "px";
+  const offset = state.deviceWinCount * 22;
+  WM.defaults[winId] = { w: 520, h: 520, x: 180 + offset % 200, y: 50 + offset % 120 };
+  win.style.width = "520px";
+  win.style.height = "520px";
+  win.style.left = (180 + offset % 200) + "px";
+  win.style.top = (50 + offset % 120) + "px";
   WM._makeDraggable(win);
   WM._makeResizable(win);
 
@@ -1094,35 +1091,66 @@ function openDeviceDetail(entityItem) {
   win.querySelector(".win-ctrl.maximize").addEventListener("click", () => WM.toggleMax(winId));
   win.addEventListener("mousedown", () => WM.focus(winId));
 
+  // Render entities list
+  const entHost = $(`${winId}-entities`);
+  if (entHost) {
+    for (const e of unique) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const ic = e.icon?.startsWith("mdi:") ? e.icon.replace(":", "-") : "mdi-zigbee";
+      const lqiStr = e.lqi != null ? ` · LQI: ${e.lqi}` : "";
+      const left = document.createElement("div");
+      left.innerHTML = `<div class="entity-title"><i class="mdi ${ic}"></i> ${escapeHtml(e.friendly_name || e.entity_id)}</div>` +
+        `<div class="entity-sub">${escapeHtml(e.entity_id)}${lqiStr} · ${fmtDate(e.last_updated)}</div>`;
+      row.appendChild(left);
+      const right = document.createElement("div");
+      right.className = "right-actions";
+      right.appendChild(makeBadge(e.state));
+      // Switch controls
+      if (e.entity_id.startsWith("switch.")) {
+        right.appendChild(makeBtn("ON", () => switchAction(e.entity_id, "turn_on")));
+        right.appendChild(makeBtn("OFF", () => switchAction(e.entity_id, "turn_off")));
+      }
+      row.appendChild(right);
+      entHost.appendChild(row);
+    }
+    if (!unique.length) entHost.innerHTML = '<div class="row"><div class="entity-sub">No related entities found</div></div>';
+  }
+
+  // Render activity log, auto-scroll to bottom
+  const logHost = $(`${winId}-log`);
+  if (logHost) {
+    const logItems = [
+      ...deviceEvents.map(ev => ({ ...ev, _src: "event" })),
+      ...deviceCommands.map(cmd => ({
+        type: "command",
+        summary: `${cmd.action} → ${cmd.entity_id} ${cmd.status === "confirmed" ? `(${cmd.delay_ms}ms)` : cmd.status === "timeout" ? "TIMEOUT" : ""}`,
+        ts: cmd.ts, _src: "cmd", _status: cmd.status,
+      }))
+    ].sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).slice(-30);
+
+    for (const ev of logItems) {
+      const row = document.createElement("div");
+      row.className = `row${ev._src === "cmd" ? " cmd-" + (ev._status || "sent") : ""}`;
+      const ic2 = ev._src === "cmd"
+        ? (ev._status === "confirmed" ? "mdi-check-circle" : ev._status === "timeout" ? "mdi-alert-circle" : "mdi-send")
+        : "mdi-flash";
+      row.innerHTML = `<div><div class="entity-title"><i class="mdi ${ic2}"></i> ${escapeHtml(ev.type || "event")}</div>` +
+        `<div class="entity-sub">${escapeHtml(ev.summary || "-")}</div></div>` +
+        `<div class="entity-sub">${fmtDate(ev.ts)}</div>`;
+      logHost.appendChild(row);
+    }
+    if (!logItems.length) logHost.innerHTML = '<div class="row"><div class="entity-sub">No activity recorded</div></div>';
+    // Auto-scroll to bottom
+    requestAnimationFrame(() => { logHost.scrollTop = logHost.scrollHeight; });
+  }
+
   WM.open(winId);
 }
 
 /* ========================================================
-   NETWORK MAP (Canvas with zoom/pan)
+   NETWORK MAP — true ZHA force-directed topology
    ======================================================== */
-function groupDevicesForMap(zhaItems) {
-  const map = {};
-  for (const e of zhaItems) {
-    const parts = e.entity_id.split(".", 2);
-    if (parts.length < 2) continue;
-    const namePart = parts[1];
-    let deviceKey = namePart;
-    const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
-      "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
-      "_contact", "_vibration", "_rssi", "_lqi", "_linkquality"];
-    for (const sfx of suffixes) {
-      if (namePart.endsWith(sfx)) { deviceKey = namePart.slice(0, -sfx.length); break; }
-    }
-    if (!map[deviceKey]) {
-      map[deviceKey] = { id: deviceKey, name: e.friendly_name || deviceKey, lqi: e.lqi, entities: [] };
-    }
-    map[deviceKey].entities.push(e.entity_id);
-    if (e.lqi != null && (map[deviceKey].lqi == null || e.lqi > map[deviceKey].lqi)) {
-      map[deviceKey].lqi = e.lqi;
-    }
-  }
-  return Object.values(map);
-}
 
 function renderNetworkMap() {
   const canvas = $("netmap-canvas");
@@ -1135,85 +1163,242 @@ function renderNetworkMap() {
   const nm = state.netMap;
 
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#111122";
+
+  // Background dark
+  ctx.fillStyle = "#0d1117";
+  ctx.fillRect(0, 0, w, h);
+  // Subtle radial glow in center
+  const bg = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)*0.6);
+  bg.addColorStop(0, "rgba(0,60,120,0.18)");
+  bg.addColorStop(1, "transparent");
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  /* Radial grid */
   ctx.save();
   ctx.translate(w / 2 + nm.panX * dpr, h / 2 + nm.panY * dpr);
   ctx.scale(nm.zoom, nm.zoom);
 
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
-  ctx.lineWidth = 1;
-  for (let r = 1; r <= 4; r++) {
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 80 * dpr, 0, Math.PI * 2);
-    ctx.stroke();
-  }
+  // Use full ZHA device list if available, else group from entities
+  const devices = state.zhaDevicesFull.length
+    ? state.zhaDevicesFull
+    : groupDevicesForMap(state.zhaItems);
 
-  const devices = groupDevicesForMap(state.zhaItems);
   if (!devices.length) {
     ctx.restore();
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${13 * dpr}px Segoe UI`;
     ctx.textAlign = "left";
-    ctx.fillText("No ZHA devices found", 20 * dpr, 30 * dpr);
+    ctx.fillText("No ZHA devices — open Network Map to load", 20 * dpr, 30 * dpr);
     return;
   }
 
-  /* Coordinator node */
-  ctx.fillStyle = "#60cdff";
+  // Build nodes with stable layout positions (force-directed seed)
+  if (!nm.nodes || nm.nodes.length !== devices.length) {
+    const count = devices.length;
+    const angleStep = (2 * Math.PI) / Math.max(count, 1);
+    nm.nodes = devices.map((dev, i) => {
+      const lqi = _devLqi(dev);
+      // Devices with better LQI placed closer to center
+      const minR = 80, maxR = 280;
+      const r = (maxR - (lqi / 255) * (maxR - minR)) * dpr;
+      const angle = i * angleStep - Math.PI / 2;
+      return {
+        dev,
+        x: Math.cos(angle) * r,
+        y: Math.sin(angle) * r,
+        vx: 0, vy: 0,
+      };
+    });
+    // Run force-directed iterations for better layout
+    for (let iter = 0; iter < 80; iter++) {
+      _forceStep(nm.nodes, dpr);
+    }
+  }
+
+  // Draw edges (lines between devices and coordinator / using neighbours if available)
+  for (const node of nm.nodes) {
+    const lqi = _devLqi(node.dev);
+    const lineColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
+    const neighbors = node.dev.neighbors || [];
+    if (neighbors.length) {
+      for (const nb of neighbors) {
+        const target = nm.nodes.find(n =>
+          (n.dev.ieee === nb.ieee) || (n.dev.device_ieee === nb.device_ieee)
+        );
+        if (!target) continue;
+        const nbLqi = nb.lqi ?? 128;
+        const edgeColor = nbLqi > 180 ? "rgba(108,203,95,0.35)"
+          : nbLqi > 100 ? "rgba(252,225,0,0.3)"
+          : "rgba(255,107,107,0.25)";
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = (nbLqi > 180 ? 1.5 : 0.8) * dpr;
+        ctx.setLineDash(nbLqi > 180 ? [] : [4*dpr, 4*dpr]);
+        ctx.beginPath();
+        ctx.moveTo(node.x, node.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else {
+      // Fallback: line to coordinator
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = (lqi > 180 ? 1.8 : 1) * dpr;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(node.x, node.y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // LQI label on line midpoint
+      if (lqi != null) {
+        ctx.fillStyle = lineColor;
+        ctx.font = `${8.5 * dpr}px Segoe UI`;
+        ctx.textAlign = "center";
+        ctx.fillText(String(lqi), node.x * 0.48, node.y * 0.48 - 4 * dpr);
+      }
+    }
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+
+  // Coordinator node (center)
+  const coordGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 18*dpr);
+  coordGrad.addColorStop(0, "#60cdff");
+  coordGrad.addColorStop(1, "#0078d4");
+  ctx.fillStyle = coordGrad;
+  ctx.shadowColor = "#60cdff";
+  ctx.shadowBlur = 12 * dpr;
   ctx.beginPath();
-  ctx.arc(0, 0, 14 * dpr, 0, Math.PI * 2);
+  ctx.arc(0, 0, 16 * dpr, 0, Math.PI * 2);
   ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
-  ctx.font = `bold ${11 * dpr}px Segoe UI`;
+  ctx.font = `bold ${10 * dpr}px Segoe UI`;
   ctx.textAlign = "center";
+  ctx.fillText("HUB", 0, 3 * dpr);
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.font = `${9 * dpr}px Segoe UI`;
   ctx.fillText("Coordinator", 0, -22 * dpr);
 
-  /* Devices arranged radially */
-  const count = devices.length;
-  const angleStep = (2 * Math.PI) / Math.max(count, 1);
-  devices.forEach((dev, i) => {
-    const lqi = dev.lqi ?? 128;
-    const radius = (60 + (255 - Math.min(lqi, 255)) * 0.86) * dpr;
-    const angle = i * angleStep - Math.PI / 2;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
+  // Draw device nodes
+  for (const node of nm.nodes) {
+    const dev = node.dev;
+    const lqi = _devLqi(dev);
+    const nodeColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
+    const isRouter = dev.device_type === "Router" || dev.power_source_str?.includes("Main");
+    const radius = isRouter ? 11 * dpr : 8 * dpr;
 
-    /* Connection line */
-    const lineColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
-    ctx.globalAlpha = 0.4;
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = (lqi > 180 ? 2 : 1.2) * dpr;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    /* LQI label */
-    if (dev.lqi != null) {
-      ctx.fillStyle = lineColor;
-      ctx.font = `${9 * dpr}px Segoe UI`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(lqi), x * 0.5, y * 0.5 - 5 * dpr);
+    // Node glow
+    if (lqi > 180) {
+      ctx.shadowColor = nodeColor;
+      ctx.shadowBlur = 6 * dpr;
     }
 
-    /* Device node */
-    ctx.fillStyle = lineColor;
+    // Node fill
+    const nodeGrad = ctx.createRadialGradient(node.x - 2*dpr, node.y - 2*dpr, 0, node.x, node.y, radius);
+    nodeGrad.addColorStop(0, nodeColor + "ff");
+    nodeGrad.addColorStop(1, nodeColor + "88");
+    ctx.fillStyle = nodeGrad;
     ctx.beginPath();
-    ctx.arc(x, y, 8 * dpr, 0, Math.PI * 2);
+    ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
 
-    /* Device label */
+    // Router ring
+    if (isRouter) {
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 1 * dpr;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 3*dpr, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Device name
+    const label = (dev.user_given_name || dev.name_by_user || dev.name || dev.ieee || "?").slice(0, 22);
     ctx.fillStyle = "#ffffffde";
-    ctx.font = `${10 * dpr}px Segoe UI`;
+    ctx.font = `${9.5 * dpr}px Segoe UI`;
     ctx.textAlign = "center";
-    ctx.fillText((dev.name || dev.id).slice(0, 20), x, y + 18 * dpr);
-  });
+    ctx.fillText(label, node.x, node.y + radius + 12 * dpr);
+
+    // LQI badge
+    if (lqi != null) {
+      ctx.fillStyle = nodeColor;
+      ctx.font = `bold ${8 * dpr}px Segoe UI`;
+      ctx.fillText(`LQI ${lqi}`, node.x, node.y + radius + 21 * dpr);
+    }
+
+    // Device type badge
+    if (isRouter) {
+      ctx.fillStyle = "rgba(96,205,255,0.7)";
+      ctx.font = `${7.5 * dpr}px Segoe UI`;
+      ctx.fillText("R", node.x, node.y + 3 * dpr);
+    }
+  }
 
   ctx.restore();
+
+  // Legend (top-right corner)
+  const lx = w - 110 * dpr, ly = 16 * dpr;
+  ctx.font = `${10 * dpr}px Segoe UI`;
+  [["#6ccb5f", "LQI > 180 (good)"], ["#fce100", "LQI 100-180 (ok)"], ["#ff6b6b", "LQI < 100 (poor)"]].forEach(([c, label], i) => {
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.arc(lx, ly + i * 16 * dpr, 4 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff99";
+    ctx.textAlign = "left";
+    ctx.fillText(label, lx + 8 * dpr, ly + 4 * dpr + i * 16 * dpr);
+  });
+  ctx.textAlign = "center";
+}
+
+function _devLqi(dev) {
+  if (dev.lqi != null) return dev.lqi;
+  if (dev.link_quality != null) return dev.link_quality;
+  // Try from neighbors list
+  if (dev.neighbors && dev.neighbors.length) {
+    const lqis = dev.neighbors.map(n => n.lqi).filter(v => v != null);
+    if (lqis.length) return Math.max(...lqis);
+  }
+  return 128;
+}
+
+function _forceStep(nodes, dpr) {
+  const repel = 3200 * dpr * dpr;
+  const attract = 0.03;
+  const center = 0.005;
+
+  for (const a of nodes) {
+    a.vx *= 0.7; a.vy *= 0.7;
+    // Center gravity
+    a.vx -= a.x * center;
+    a.vy -= a.y * center;
+    // Repulsion between nodes
+    for (const b of nodes) {
+      if (a === b) continue;
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d2 = dx*dx + dy*dy + 1;
+      const f = repel / d2;
+      a.vx += (dx / Math.sqrt(d2)) * f;
+      a.vy += (dy / Math.sqrt(d2)) * f;
+    }
+    // Attraction to neighbors
+    const neighbors = a.dev.neighbors || [];
+    for (const nb of neighbors) {
+      const target = nodes.find(n => n.dev.ieee === nb.ieee || n.dev.device_ieee === nb.device_ieee);
+      if (!target) continue;
+      const dx = target.x - a.x, dy = target.y - a.y;
+      a.vx += dx * attract;
+      a.vy += dy * attract;
+    }
+  }
+  for (const a of nodes) {
+    a.x += a.vx;
+    a.y += a.vy;
+  }
 }
 
 function initNetworkMap() {
@@ -1223,8 +1408,8 @@ function initNetworkMap() {
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    nm.zoom = Math.max(0.3, Math.min(5, nm.zoom * factor));
+    const factor = e.deltaY < 0 ? 1.12 : 0.88;
+    nm.zoom = Math.max(0.2, Math.min(8, nm.zoom * factor));
     renderNetworkMap();
   }, { passive: false });
 
@@ -1244,7 +1429,207 @@ function initNetworkMap() {
   document.addEventListener("mouseup", () => {
     if (dragging) { dragging = false; canvas.style.cursor = "grab"; }
   });
+
+  // Double-click to reset view
+  canvas.addEventListener("dblclick", () => {
+    nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
+    renderNetworkMap();
+  });
 }
+
+/* ========================================================
+   ZIGBEE ERROR LOGS WINDOW
+   ======================================================== */
+function renderZigbeeLogs() {
+  if (state.zigbeeLogsPaused) return;
+  const host = $("zigbeelogs-list");
+  if (!host) return;
+  const q = ($("zigbeelogs-search")?.value || "").trim().toLowerCase();
+  const filters = {
+    timeout: $("zbl-filter-timeout")?.checked !== false,
+    not_delivered: $("zbl-filter-not_delivered")?.checked !== false,
+    lqi_critical: $("zbl-filter-lqi_critical")?.checked !== false,
+    log_error: $("zbl-filter-log_error")?.checked !== false,
+  };
+
+  const items = [...state.zigbeeErrorLog].reverse().filter(item => {
+    if (!filters[item.type] && !filters[item.type?.replace(/^log_/, "log_error")]) {
+      const baseType = item.type?.startsWith("log_") ? "log_error" : item.type;
+      if (!filters[baseType]) return false;
+    }
+    if (q && !`${item.ieee || ""} ${item.type || ""} ${item.raw || ""}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  host.innerHTML = "";
+  for (const item of items.slice(0, 300)) {
+    const row = document.createElement("div");
+    const baseType = item.type?.startsWith("log_") ? "log_error" : item.type;
+    row.className = `row zbl-${baseType}`;
+    row.style.cursor = "pointer";
+
+    const iconMap = {
+      timeout: "mdi-timer-off",
+      not_delivered: "mdi-message-off",
+      lqi_critical: "mdi-signal-off",
+      log_error: "mdi-alert",
+    };
+    const icon = iconMap[baseType] || "mdi-bug";
+
+    row.innerHTML =
+      `<div style="flex:1;min-width:0">` +
+      `<div class="entity-title"><i class="mdi ${icon}"></i> ${escapeHtml(item.type || "unknown")}` +
+      (item.ieee ? ` <span class="entity-sub" style="margin:0 0 0 6px">${escapeHtml(item.ieee)}</span>` : "") +
+      `</div>` +
+      `<div class="entity-sub">${escapeHtml((item.raw || "").slice(0, 100))}</div>` +
+      `</div>` +
+      `<div class="entity-sub" style="flex-shrink:0">${fmtDate(item.ts)}</div>`;
+
+    row.addEventListener("click", () => {
+      document.querySelectorAll("#zigbeelogs-list .row").forEach(r => r.classList.remove("zbl-selected"));
+      row.classList.add("zbl-selected");
+      const ta = $("zigbeelogs-raw");
+      if (ta) {
+        ta.value = JSON.stringify(item, null, 2);
+        ta.scrollTop = 0;
+      }
+    });
+    host.appendChild(row);
+  }
+
+  if (!items.length) {
+    host.innerHTML = '<div class="row"><div class="entity-sub">No Zigbee errors logged yet. Errors appear when ZHA reports timeouts, delivery failures or LQI drops.</div></div>';
+  }
+}
+
+function initZigbeeLogs() {
+  $("zigbeelogs-search")?.addEventListener("input", renderZigbeeLogs);
+  ["zbl-filter-timeout","zbl-filter-not_delivered","zbl-filter-lqi_critical","zbl-filter-log_error"]
+    .forEach(id => $(id)?.addEventListener("change", renderZigbeeLogs));
+  $("zigbeelogs-clear-btn")?.addEventListener("click", () => {
+    state.zigbeeErrorLog = [];
+    renderZigbeeLogs();
+  });
+  $("zigbeelogs-pause-btn")?.addEventListener("click", (e) => {
+    state.zigbeeLogsPaused = !state.zigbeeLogsPaused;
+    const btn = e.currentTarget;
+    btn.innerHTML = state.zigbeeLogsPaused
+      ? `<i class="mdi mdi-play"></i>`
+      : `<i class="mdi mdi-pause"></i>`;
+    btn.title = state.zigbeeLogsPaused ? "Resume" : "Pause";
+  });
+}
+
+/* ========================================================
+   SPLIT RESIZE BAR (for telemetry top/bottom panels)
+   ======================================================== */
+function initSplitResizeBar(barId, topId, bottomId) {
+  const bar = $(barId);
+  const top = $(topId);
+  const bottom = $(bottomId);
+  if (!bar || !top || !bottom) return;
+
+  let dragging = false, startY = 0, startTopH = 0;
+
+  bar.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startTopH = top.offsetHeight;
+    bar.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ns-resize";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const delta = e.clientY - startY;
+    const newH = Math.max(60, startTopH + delta);
+    top.style.flex = "none";
+    top.style.height = newH + "px";
+    bottom.style.flex = "1";
+    bottom.style.height = "0";
+    // Redraw telemetry chart
+    const canvas = top.querySelector("canvas");
+    if (canvas) { syncCanvas(canvas); renderTelemetryChart(state.telemetrySpikes); }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    bar.classList.remove("dragging");
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  });
+}
+
+/* ========================================================
+   DESKTOP ICON DRAG & SAVE POSITIONS
+   ======================================================== */
+function initDesktopIconDrag() {
+  const desktop = $("desktop");
+  if (!desktop) return;
+
+  function makeIconDraggable(btn) {
+    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    const key = btn.dataset.win || btn.dataset.folderId || btn.textContent.trim().slice(0, 30);
+
+    // Restore saved position
+    const saved = state.iconPositions[key];
+    if (saved) {
+      btn.style.position = "fixed";
+      btn.style.left = saved.x + "px";
+      btn.style.top = saved.y + "px";
+    }
+
+    btn.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      // Distinguish click vs drag: start drag only after 5px movement
+      const startX = e.clientX, startY2 = e.clientY;
+      let moved = false;
+
+      const onMove = (e2) => {
+        if (!moved && Math.hypot(e2.clientX - startX, e2.clientY - startY2) < 5) return;
+        if (!moved) {
+          moved = true;
+          dragging = true;
+          sx = startX; sy = startY2;
+          const rect = btn.getBoundingClientRect();
+          ox = rect.left; oy = rect.top;
+          btn.style.position = "fixed";
+          btn.style.left = ox + "px";
+          btn.style.top = oy + "px";
+          btn.classList.add("dragging");
+        }
+        if (!dragging) return;
+        const nx = Math.max(0, Math.min(window.innerWidth - btn.offsetWidth, ox + e2.clientX - sx));
+        const ny = Math.max(0, Math.min(window.innerHeight - btn.offsetHeight - 52, oy + e2.clientY - sy));
+        btn.style.left = nx + "px";
+        btn.style.top = ny + "px";
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        if (dragging) {
+          dragging = false;
+          btn.classList.remove("dragging");
+          const pos = { x: parseFloat(btn.style.left), y: parseFloat(btn.style.top) };
+          state.iconPositions[key] = pos;
+          localStorage.setItem("zha_icon_positions", JSON.stringify(state.iconPositions));
+        }
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  document.querySelectorAll(".desktop-shortcut, .desktop-folder").forEach(makeIconDraggable);
+  // Re-apply when folders are re-rendered
+  window._makeIconDraggable = makeIconDraggable;
+}
+
+const _origRenderDesktopFolders = typeof renderDesktopFolders === "function" ? renderDesktopFolders : null;
 
 /* ========================================================
    DEVICE HELPER EXPLORER
@@ -1702,6 +2087,7 @@ function renderDesktopFolders() {
       `<span>${escapeHtml(folder.name)}</span>`;
     btn.addEventListener("dblclick", () => openFolderWindow(folder.id));
     container.appendChild(btn);
+    if (window._makeIconDraggable) window._makeIconDraggable(btn);
   }
 }
 
@@ -1934,6 +2320,14 @@ async function load() {
     state.telemetrySpikes = d.telemetry?.spikes || [];
     state.telemetryEvents = d.telemetry?.events || [];
     state.commandLog = d.command_log || [];
+    state.zhaDevicesFull = d.zha_devices_full || [];
+    // Merge new errors; deduplicate by ts+type+ieee
+    const prevKeys = new Set(state.zigbeeErrorLog.map(e => `${e.ts}|${e.type}|${e.ieee}`));
+    for (const e of (d.zigbee_error_log || [])) {
+      const k = `${e.ts}|${e.type}|${e.ieee}`;
+      if (!prevKeys.has(k)) { state.zigbeeErrorLog.push(e); prevKeys.add(k); }
+    }
+    if (state.zigbeeErrorLog.length > 500) state.zigbeeErrorLog = state.zigbeeErrorLog.slice(-500);
 
     setSummary(d.summary || {});
     renderDelayChart(d.delay_samples || []);
@@ -1947,6 +2341,7 @@ async function load() {
     renderBatteryChart(state.batteryItems);
     renderBatteryAlerts(state.batteryAlerts);
     renderNetworkMap();
+    renderZigbeeLogs();
 
     if (d.runtime?.last_error) {
       setStatus(`Error: ${d.runtime.last_error}`, true);
@@ -2042,6 +2437,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* Network map mouse events */
   initNetworkMap();
+
+  /* Zigbee Logs window */
+  initZigbeeLogs();
+
+  /* Telemetry split resize bar */
+  initSplitResizeBar("telemetry-split-bar", "telemetry-top", "telemetry-bottom");
+
+  /* Desktop icon drag & drop */
+  initDesktopIconDrag();
 
   /* Device Helper */
   $("devhelper-search")?.addEventListener("input", renderDevHelperDevices);

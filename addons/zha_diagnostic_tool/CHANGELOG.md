@@ -1,5 +1,23 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.0] - 2026-02-25
+
+### Added
+- **Zigbee Logs window**: live stream of all Zigbee errors (timeout, not_delivered, LQI critical, system log errors) with search, filter by type, pause, clear, and click-to-raw JSON textarea.
+- **ZHA Network Map rewrite**: true force-directed topology using real `zha/devices` data (fetched every 60s via WebSocket). Shows neighbor edges with LQI-colored lines (dashed for weak links), router rings, gradient node circles, and a legend. Double-click to reset view.
+- **Zigbee error tracking**: backend now detects `zha_event` timeouts, not_delivered commands, LQI < 20 critical alerts, and `system_log_event` messages with Zigbee keywords.
+- **Desktop icon drag & drop**: all desktop shortcuts and folder icons are draggable; positions saved to `localStorage` and restored on reload.
+- **Split resize bar**: in Telemetry window, draggable bar between the chart and log panels, styled with accent theme.
+- **Themed UI components**: dropdowns and selects use custom SVG arrow, `select option` background themed; global thin scrollbar styled with accent color; autocomplete list improved (accent border, z-index fix, box-shadow).
+- **Entity click opens device window**: single click on ZHA entity now opens a device-grouped detail window showing ALL related entities with state badges and switch controls, plus activity log auto-scrolled to latest.
+- New API endpoints: `GET /api/zigbee-logs`, `GET /api/zha-network`.
+
+### Changed
+- Cache-bust bumped to `?v=090` on CSS/JS includes.
+- `netmap-win` default size increased to 820×600.
+- Entity click changed from double-click to single click in ZHA list.
+- `zha_devices_full` and `zigbee_error_log` included in `/api/dashboard` payload.
+
 ## [0.8.0] - 2026-02-23
 
 ### Added

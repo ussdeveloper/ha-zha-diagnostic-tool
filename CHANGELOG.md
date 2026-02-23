@@ -4,10 +4,21 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
-## [0.9.0] - 2026-02-23
+## [0.9.0] - 2026-02-25
 
 ### Added
-- Device Helper Explorer window: ZHA device configuration tool with cluster browsing, attribute read/write, ZCL help descriptions, identify command, and keep-alive periodic pings.
+- **Zigbee Logs window**: live stream of all Zigbee errors (timeout, not_delivered, LQI critical, system log errors) with search, filter by type, pause, clear, and click-to-raw JSON textarea.
+- **ZHA Network Map rewrite**: true force-directed topology from `zha/devices` WS data (every 60s). Neighbor edges colored by LQI, router rings, gradient nodes, legend, double-click to reset.
+- **Zigbee error tracking**: backend captures `zha_event` timeouts, not_delivered, LQI < 20, and `system_log_event` Zigbee keyword messages into a rolling 500-entry log.
+- **Desktop icon drag & drop**: shortcuts and folder icons draggable; positions persisted to `localStorage`.
+- **Split resize bar**: draggable divider between Telemetry chart and log panels, accent-themed.
+- **Themed UI components**: custom select dropdown arrow, themed scrollbars, improved autocomplete list.
+- **Entity → Device window**: single click opens device-grouped window with all related entities, state badges, switch controls, and auto-scrolled activity log.
+- New API: `GET /api/zigbee-logs`, `GET /api/zha-network`.
+
+### Changed
+- Cache-bust `?v=090`.
+- Device Helper Explorer (from v0.8.0): ZHA device configuration tool with cluster browsing, attribute read/write, ZCL help descriptions, identify command, and keep-alive periodic pings.
 - Battery history charts: real data from HA History API with 5-minute lookback.
 - Phone battery entities in Battery Monitor (any HA entity with battery data).
 - Keep-alive CRUD API endpoints and periodic evaluation task.

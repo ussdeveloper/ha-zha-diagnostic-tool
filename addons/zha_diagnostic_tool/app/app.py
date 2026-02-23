@@ -75,6 +75,12 @@ class DiagnosticRuntime:
         self.battery_alerts: list[dict[str, Any]] = self._load_json(BATTERY_ALERTS_PATH, default=[])
         self.keepalive_configs: list[dict[str, Any]] = self._load_json(KEEPALIVE_PATH, default=[])
         self._last_battery_history_ts: float = 0.0
+        self._last_zha_map_ts: float = 0.0
+
+        # Full zigbee device list from ZHA WS (with neighbours/LQI for map)
+        self.zha_devices_full: list[dict[str, Any]] = []
+        # Zigbee error log: timeout, not_delivered, link failures
+        self.zigbee_error_log: deque[dict[str, Any]] = deque(maxlen=500)
 
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
@@ -130,6 +136,7 @@ class DiagnosticRuntime:
                 await self.refresh_states()
                 self._check_command_timeouts()
                 await self._maybe_fetch_battery_history()
+                await self._maybe_fetch_zha_map()
                 await self._evaluate_keepalive()
                 self.last_error = None
             except Exception as exc:  # noqa: BLE001
@@ -320,6 +327,18 @@ class DiagnosticRuntime:
         self._last_battery_history_ts = now
         await self._fetch_battery_history()
 
+    async def _maybe_fetch_zha_map(self) -> None:
+        now = datetime.now(tz=UTC).timestamp()
+        if now - self._last_zha_map_ts < 60:
+            return
+        self._last_zha_map_ts = now
+        try:
+            resp = await self._ws_command({"type": "zha/devices"})
+            if resp.get("success"):
+                self.zha_devices_full = resp.get("result", [])
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("ZHA map fetch error: %s", exc)
+
     async def _fetch_battery_history(self) -> None:
         if not self.session or not self.battery_entities:
             return
@@ -406,12 +425,48 @@ class DiagnosticRuntime:
         category = "other"
         if event_name == "zha_event":
             category = "zha"
+            # Track Zigbee errors: timeout, not_delivered, lqi drop
+            zha_cmd = str(event_data.get("command", "")).lower()
+            zha_ieee = str(event_data.get("device_ieee", ""))
+            zha_lqi = event_data.get("lqi")
+            is_error = False
+            error_type = ""
+            if "timeout" in zha_cmd or event_data.get("timed_out"):
+                is_error = True
+                error_type = "timeout"
+            elif "not_delivered" in zha_cmd or event_data.get("not_delivered"):
+                is_error = True
+                error_type = "not_delivered"
+            elif zha_lqi is not None and int(zha_lqi) < 20:
+                is_error = True
+                error_type = "lqi_critical"
+            if is_error:
+                self.zigbee_error_log.append({
+                    "ts": now.isoformat(),
+                    "type": error_type,
+                    "ieee": zha_ieee,
+                    "command": zha_cmd,
+                    "lqi": zha_lqi,
+                    "raw": json.dumps(event_data, ensure_ascii=False)[:300],
+                })
         elif event_name == "state_changed":
             category = "state"
         elif event_name == "call_service":
             category = "call"
         elif event_name == "system_log_event":
             level = str(event_data.get("level", "")).lower()
+            msg = str(event_data.get("message", "")).lower()
+            # Capture zigbee-related log errors
+            if level in {"error", "warning", "critical"}:
+                if any(kw in msg for kw in ("zigbee", "zha", "bellows", "ezsp", "timeout", "not delivered", "delivery")):
+                    self.zigbee_error_log.append({
+                        "ts": now.isoformat(),
+                        "type": f"log_{level}",
+                        "ieee": "",
+                        "command": "",
+                        "lqi": None,
+                        "raw": str(event_data.get("message", ""))[:300],
+                    })
             category = "log_error" if level in {"error", "warning", "critical"} else "other"
 
         if self._telemetry_current_second is None:
@@ -699,6 +754,8 @@ class DiagnosticRuntime:
             "battery_alerts": self.battery_alerts,
             "notify_entities": self.notify_entities,
             "command_log": list(self.command_log)[-100:],
+            "zha_devices_full": self.zha_devices_full,
+            "zigbee_error_log": list(self.zigbee_error_log)[-200:],
         }
 
     def _command_success_rate(self) -> float | None:
@@ -778,6 +835,14 @@ class DiagnosticRuntime:
 
 
 runtime = DiagnosticRuntime()
+
+
+async def get_zigbee_logs(_: web.Request) -> web.Response:
+    return web.json_response({"items": list(runtime.zigbee_error_log)})
+
+
+async def get_zha_network(_: web.Request) -> web.Response:
+    return web.json_response({"items": runtime.zha_devices_full})
 
 
 async def index(_: web.Request) -> web.FileResponse:
@@ -1177,6 +1242,9 @@ def create_app() -> web.Application:
 
     app.router.add_post("/api/switch-action", switch_action)
     app.router.add_post("/api/refresh", refresh_now)
+
+    app.router.add_get("/api/zigbee-logs", get_zigbee_logs)
+    app.router.add_get("/api/zha-network", get_zha_network)
 
     app.router.add_get("/api/battery-alerts", get_battery_alerts)
     app.router.add_post("/api/battery-alerts", create_battery_alert)

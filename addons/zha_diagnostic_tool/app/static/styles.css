@@ -462,10 +462,36 @@ input, select {
   font-size: 13px;
   outline: none;
   transition: border 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff99' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+select option {
+  background: var(--mica-solid);
+  color: var(--text);
 }
 
 input:focus, select:focus { border-color: var(--accent); }
 input::placeholder { color: var(--text-tert); }
+
+/* Global scrollbar theming */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+*::-webkit-scrollbar-corner { background: transparent; }
 
 /* ===== Autocomplete ===== */
 .autocomplete-wrap {
@@ -481,33 +507,38 @@ input::placeholder { color: var(--text-tert); }
   top: 100%;
   left: 0;
   right: 0;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
   background: var(--mica-solid);
-  border: 1px solid var(--border-hi);
+  border: 1px solid var(--accent);
   border-top: none;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  z-index: 500;
+  z-index: 9000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
 
 .autocomplete-list.open { display: block; }
 
 .autocomplete-item {
-  padding: 6px 10px;
+  padding: 7px 12px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
   transition: background 0.1s;
+  border-bottom: 1px solid var(--divider);
 }
+
+.autocomplete-item:last-child { border-bottom: none; }
 
 .autocomplete-item:hover,
 .autocomplete-item.active {
-  background: rgba(255,255,255,0.08);
+  background: rgba(96,205,255,0.12);
+  color: var(--accent);
 }
 
 .autocomplete-item .ac-match {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ===== Buttons ===== */
@@ -628,21 +659,60 @@ button.accent:hover { background: var(--accent-hover); }
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  gap: 8px;
+  gap: 0;
 }
 
 .telemetry-top {
   flex: 1;
-  min-height: 0;
+  min-height: 80px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .telemetry-bottom {
   flex: 1;
-  min-height: 0;
+  min-height: 60px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== Split Resize Bar ===== */
+.split-resize-bar {
+  height: 6px;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: ns-resize;
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+  transition: background 0.15s;
+  position: relative;
+  z-index: 5;
+}
+
+.split-resize-bar:hover,
+.split-resize-bar.dragging {
+  background: rgba(96,205,255,0.18);
+  border-color: var(--accent);
+}
+
+.split-resize-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 2px;
+  background: var(--text-tert);
+  border-radius: 1px;
+  transition: background 0.15s, width 0.15s;
+}
+
+.split-resize-bar:hover::after {
+  background: var(--accent);
+  width: 48px;
 }
 
 .tele-legend {
@@ -947,4 +1017,79 @@ button.danger:hover { background: #a62115; }
     width: calc(100% - 16px) !important;
     left: 8px !important;
   }
+}
+
+/* ===== Log Textarea ===== */
+.log-textarea {
+  width: 100%;
+  height: 80px;
+  flex-shrink: 0;
+  resize: none;
+  background: var(--mica-solid);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: "Consolas", "Cascadia Code", monospace;
+  font-size: 11px;
+  outline: none;
+  overflow-y: auto;
+  white-space: pre;
+  word-break: break-all;
+}
+
+/* ===== Zigbee Logs ===== */
+.zigbeelogs-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.zigbeelogs-toolbar input { flex: 1; min-width: 160px; }
+
+.zbl-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.row.zbl-timeout .entity-title .mdi { color: var(--bad); }
+.row.zbl-not_delivered .entity-title .mdi { color: #ff922b; }
+.row.zbl-lqi_critical .entity-title .mdi { color: var(--warn); }
+.row.zbl-log_error .entity-title .mdi { color: #da77f2; }
+.row.zbl-selected { background: rgba(96,205,255,0.08); }
+
+/* ===== Desktop icon drag mode ===== */
+.desktop-shortcut.dragging,
+.desktop-folder.dragging {
+  opacity: 0.7;
+  border: 1px dashed var(--accent);
+  background: rgba(96,205,255,0.08);
+  z-index: 10000;
+}
+
+.desktop-icons {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: calc(100% - 80px);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.desktop-icons > * {
+  pointer-events: auto;
+}
+
+/* Fixed-positioned icons override */
+.desktop-shortcut[style*="position"],
+.desktop-folder[style*="position"] {
+  position: fixed;
 }

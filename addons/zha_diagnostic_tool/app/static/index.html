@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=080" />
+  <link rel="stylesheet" href="static/styles.css?v=090" />
 </head>
 <body>
 
@@ -49,6 +49,10 @@
       <button class="desktop-shortcut" data-win="devhelper-win">
         <div class="shortcut-icon"><i class="mdi mdi-wrench"></i></div>
         <span>Device Helper</span>
+      </button>
+      <button class="desktop-shortcut" data-win="zigbeelogs-win">
+        <div class="shortcut-icon"><i class="mdi mdi-alert-circle"></i></div>
+        <span>Zigbee Logs</span>
       </button>
     </div>
 
@@ -136,7 +140,7 @@
         </div>
       </div>
       <div class="window-body telemetry-body">
-        <div class="telemetry-top">
+        <div class="telemetry-top" id="telemetry-top">
           <div class="tele-legend">
             <span><i class="dot" style="background:#60cdff"></i> ZHA</span>
             <span><i class="dot" style="background:#6ccb5f"></i> State</span>
@@ -145,7 +149,8 @@
           </div>
           <canvas id="telemetry-chart"></canvas>
         </div>
-        <div class="telemetry-bottom">
+        <div class="split-resize-bar" id="telemetry-split-bar"></div>
+        <div class="telemetry-bottom" id="telemetry-bottom">
           <div id="telemetry-log" class="list"></div>
         </div>
       </div>
@@ -302,6 +307,35 @@
       <div class="resize-handle"></div>
     </section>
 
+    <!-- All Zigbee Logs -->
+    <section class="window" id="zigbeelogs-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-alert-circle win-icon"></i>
+        <span class="win-title">All Zigbee Logs — Errors &amp; Events</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="zigbeelogs-toolbar">
+          <input id="zigbeelogs-search" placeholder="Search logs (IEEE, type, message)..." />
+          <div class="zbl-filters">
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-timeout" checked /> Timeout</label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-not_delivered" checked /> Not Delivered</label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-lqi_critical" checked /> LQI Critical</label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-log_error" checked /> Log Errors</label>
+          </div>
+          <button id="zigbeelogs-clear-btn"><i class="mdi mdi-delete-sweep"></i> Clear</button>
+          <button id="zigbeelogs-pause-btn"><i class="mdi mdi-pause"></i></button>
+        </div>
+        <div id="zigbeelogs-list" class="list"></div>
+        <textarea id="zigbeelogs-raw" class="log-textarea" readonly placeholder="Click a log entry to see raw data..."></textarea>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
   </div>
 
   <!-- ===== TASKBAR (Windows 11) ===== -->
@@ -320,6 +354,7 @@
       <button class="taskbar-app" data-win="battery-win" title="Battery Monitor"><i class="mdi mdi-battery"></i></button>
       <button class="taskbar-app" data-win="netmap-win" title="Network Map"><i class="mdi mdi-lan"></i></button>
       <button class="taskbar-app" data-win="devhelper-win" title="Device Helper"><i class="mdi mdi-wrench"></i></button>
+      <button class="taskbar-app" data-win="zigbeelogs-win" title="Zigbee Logs"><i class="mdi mdi-alert-circle"></i></button>
       <button class="taskbar-app" id="refresh-btn" title="Refresh data"><i class="mdi mdi-refresh"></i></button>
     </div>
 
@@ -360,6 +395,6 @@
     </div>
   </div>
 
-  <script src="static/app.js?v=080"></script>
+  <script src="static/app.js?v=090"></script>
 </body>
 </html>
