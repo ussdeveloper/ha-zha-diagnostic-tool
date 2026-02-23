@@ -4,6 +4,12 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.3.1] - 2026-02-23
+
+### Fixed
+- Hotfix budowania add-ona `zha_diagnostic_tool` na Alpine/HA Supervisor.
+- Eliminacja błędu PEP 668 (`externally-managed-environment`) przez rezygnację z `pip` w Dockerfile.
+
 ## [0.3.0] - 2026-02-23
 
 ### Added

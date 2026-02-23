@@ -1,5 +1,12 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.2.1] - 2026-02-23
+
+### Fixed
+- Naprawa builda obrazu add-ona na Alpine (PEP 668 / externally managed environment).
+- Usunięto instalację `pip3 install aiohttp` z Dockerfile.
+- Zależność `aiohttp` dostarczana przez `apk` jako `py3-aiohttp`.
+
 ## [0.2.0] - 2026-02-23
 
 ### Added

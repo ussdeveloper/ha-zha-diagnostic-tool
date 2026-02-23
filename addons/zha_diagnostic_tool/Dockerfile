@@ -3,8 +3,7 @@ FROM ghcr.io/home-assistant/${BUILD_ARCH}-base:3.22
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
-RUN apk add --no-cache bash jq coreutils grep python3 py3-pip \
-	&& pip3 install --no-cache-dir aiohttp==3.10.11
+RUN apk add --no-cache bash jq coreutils grep python3 py3-aiohttp
 
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
