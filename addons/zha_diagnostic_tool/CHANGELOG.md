@@ -1,5 +1,17 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.3.0] - 2026-02-23
+
+### Added
+- Full-screen desktop-style UI (Windows-like układ okien).
+- Wyszukiwarka encji ZHA i osobna wyszukiwarka switchy.
+- Widgety pulpitowe KPI (w tym PHI/P95 delay) oraz ulepszony wykres delay.
+- Osobna aplikacja/okno do linkowania mirror switchy (domyślnie bidirectional).
+- Reguły automatyzacji sensor-range -> switch action (w zakresie/poza zakresem).
+
+### Changed
+- Rozszerzone API backendu o sensory, switche, sensor-rules i bardziej szczegółowy payload dashboardu.
+
 ## [0.2.2] - 2026-02-23
 
 ### Fixed

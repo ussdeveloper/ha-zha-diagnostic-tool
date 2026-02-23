@@ -4,6 +4,16 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.4.0] - 2026-02-23
+
+### Added
+- Desktop-style UI dla add-ona z pełnym wykorzystaniem przestrzeni.
+- Wyszukiwanie encji ZHA/switchy, rozbudowane widgety KPI i wykresy.
+- Okno mirror switches oraz reguły sterowania switchami na podstawie zakresów sensorów.
+
+### Changed
+- Backend add-ona rozszerzony o API i egzekucję reguł sensor-range.
+
 ## [0.3.2] - 2026-02-23
 
 ### Fixed

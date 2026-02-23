@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,7 +20,8 @@ logging.basicConfig(level=logging.INFO)
 SUPERVISOR_API = "http://supervisor/core/api"
 SUPERVISOR_WS = "ws://supervisor/core/websocket"
 OPTIONS_PATH = Path("/data/options.json")
-RULES_PATH = Path("/config/zha_diagnostic_mirror_rules.json")
+MIRROR_RULES_PATH = Path("/config/zha_diagnostic_mirror_rules.json")
+SENSOR_RULES_PATH = Path("/config/zha_diagnostic_sensor_rules.json")
 STATIC_DIR = Path(__file__).parent / "static"
 
 ZIGBEE_KEYWORDS = ("zigbee", "zha", "deconz", "zigbee2mqtt", "bellows", "ezsp")
@@ -36,7 +38,8 @@ class PendingSwitchCommand:
 class DiagnosticRuntime:
     def __init__(self) -> None:
         self.token = os.getenv("SUPERVISOR_TOKEN", "")
-        self.options = self._load_options()
+        self.options = self._load_json(OPTIONS_PATH, default={})
+
         self.poll_interval_seconds = int(self.options.get("poll_interval_seconds", 2))
         self.max_delay_samples = int(self.options.get("max_delay_samples", 300))
         self.mirror_cooldown_ms = int(self.options.get("mirror_cooldown_ms", 1200))
@@ -44,11 +47,17 @@ class DiagnosticRuntime:
 
         self.states: dict[str, dict[str, Any]] = {}
         self.zigbee_entities: list[dict[str, Any]] = []
+        self.switch_entities: list[dict[str, Any]] = []
+        self.sensor_entities: list[dict[str, Any]] = []
+
         self.delay_samples: deque[dict[str, Any]] = deque(maxlen=self.max_delay_samples)
         self.pending: dict[str, PendingSwitchCommand] = {}
         self.recent_mirror_targets: dict[str, float] = {}
+        self.recent_sensor_actions: dict[str, float] = {}
 
-        self.mirror_rules: list[dict[str, Any]] = self._load_rules()
+        self.mirror_rules: list[dict[str, Any]] = self._load_json(MIRROR_RULES_PATH, default=[])
+        self.sensor_rules: list[dict[str, Any]] = self._load_json(SENSOR_RULES_PATH, default=[])
+
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
 
@@ -56,33 +65,23 @@ class DiagnosticRuntime:
         self._poll_task: asyncio.Task | None = None
         self._ws_task: asyncio.Task | None = None
 
-    def _load_options(self) -> dict[str, Any]:
-        if not OPTIONS_PATH.exists():
-            return {}
+    def _load_json(self, path: Path, default: Any) -> Any:
+        if not path.exists():
+            return default
         try:
-            return json.loads(OPTIONS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(default, list):
+                return data if isinstance(data, list) else default
+            if isinstance(default, dict):
+                return data if isinstance(data, dict) else default
+            return data
         except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("Cannot parse options.json: %s", exc)
-            return {}
+            LOGGER.warning("Cannot parse %s: %s", path, exc)
+            return default
 
-    def _load_rules(self) -> list[dict[str, Any]]:
-        if not RULES_PATH.exists():
-            return []
-        try:
-            data = json.loads(RULES_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return [rule for rule in data if isinstance(rule, dict)]
-            return []
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("Cannot parse mirror rules file: %s", exc)
-            return []
-
-    def _save_rules(self) -> None:
-        RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        RULES_PATH.write_text(
-            json.dumps(self.mirror_rules, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+    def _save_json(self, path: Path, data: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @property
     def auth_headers(self) -> dict[str, str]:
@@ -120,6 +119,7 @@ class DiagnosticRuntime:
     async def refresh_states(self) -> None:
         if not self.session:
             return
+
         async with self.session.get(
             f"{SUPERVISOR_API}/states",
             timeout=ClientTimeout(total=20),
@@ -131,31 +131,64 @@ class DiagnosticRuntime:
 
         states: dict[str, dict[str, Any]] = {}
         zigbee_entities: list[dict[str, Any]] = []
+        switch_entities: list[dict[str, Any]] = []
+        sensor_entities: list[dict[str, Any]] = []
 
         for item in payload:
             entity_id = item.get("entity_id")
             if not isinstance(entity_id, str):
                 continue
+
             states[entity_id] = item
+            attrs = item.get("attributes") or {}
+            state_value = item.get("state")
+
+            if entity_id.startswith("switch."):
+                switch_entities.append(
+                    {
+                        "entity_id": entity_id,
+                        "state": state_value,
+                        "friendly_name": attrs.get("friendly_name", entity_id),
+                        "icon": attrs.get("icon", "mdi:toggle-switch"),
+                        "last_updated": item.get("last_updated"),
+                    }
+                )
+
+            if entity_id.startswith("sensor."):
+                numeric = self._numeric_state_value(item)
+                sensor_entities.append(
+                    {
+                        "entity_id": entity_id,
+                        "state": state_value,
+                        "numeric_state": numeric,
+                        "friendly_name": attrs.get("friendly_name", entity_id),
+                        "unit": attrs.get("unit_of_measurement"),
+                        "icon": attrs.get("icon", "mdi:gauge"),
+                    }
+                )
 
             if self._is_zigbee_entity(item):
                 zigbee_entities.append(
                     {
                         "entity_id": entity_id,
-                        "state": item.get("state"),
-                        "friendly_name": (item.get("attributes") or {}).get("friendly_name", entity_id),
-                        "device_class": (item.get("attributes") or {}).get("device_class"),
+                        "state": state_value,
+                        "friendly_name": attrs.get("friendly_name", entity_id),
+                        "device_class": attrs.get("device_class"),
                         "lqi": self._extract_lqi(item),
+                        "icon": attrs.get("icon", "mdi:zigbee"),
                         "last_updated": item.get("last_updated"),
                     }
                 )
 
         self.states = states
         self.zigbee_entities = sorted(zigbee_entities, key=lambda e: e["entity_id"])
+        self.switch_entities = sorted(switch_entities, key=lambda e: e["entity_id"])
+        self.sensor_entities = sorted(sensor_entities, key=lambda e: e["entity_id"])
         self.last_success_utc = datetime.now(tz=UTC).isoformat()
 
+        await self._evaluate_sensor_rules()
+
     async def _ws_loop(self) -> None:
-        """Subscribe to HA events for accurate command->ack delay metrics and mirror logic."""
         while True:
             try:
                 await self._ws_session_once()
@@ -186,8 +219,7 @@ class DiagnosticRuntime:
             while True:
                 msg = await ws.receive(timeout=60)
                 if msg.type == WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    await self._handle_ws_message(data)
+                    await self._handle_ws_message(json.loads(msg.data))
                 elif msg.type in {WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR}:
                     raise RuntimeError("Websocket closed")
 
@@ -273,7 +305,7 @@ class DiagnosticRuntime:
 
             src = rule.get("source")
             dst = rule.get("target")
-            bidirectional = bool(rule.get("bidirectional", False))
+            bidirectional = bool(rule.get("bidirectional", True))
 
             pairs: list[tuple[str, str]] = []
             if src and dst:
@@ -301,10 +333,56 @@ class DiagnosticRuntime:
         if ok:
             self.recent_mirror_targets[target_entity] = now
 
+    async def _evaluate_sensor_rules(self) -> None:
+        if not self.sensor_rules:
+            return
+
+        for rule in self.sensor_rules:
+            if not rule.get("enabled", True):
+                continue
+
+            rule_id = str(rule.get("id", ""))
+            sensor_entity = str(rule.get("sensor_entity", ""))
+            switch_entity = str(rule.get("switch_entity", ""))
+            min_value = rule.get("min_value")
+            max_value = rule.get("max_value")
+            in_action = str(rule.get("action_in_range", "turn_on"))
+            out_action = str(rule.get("action_out_of_range", "none"))
+            cooldown_ms = int(rule.get("cooldown_ms", 4000))
+
+            if not sensor_entity.startswith("sensor.") or not switch_entity.startswith("switch."):
+                continue
+
+            sensor_state = self.states.get(sensor_entity)
+            if not sensor_state:
+                continue
+
+            value = self._numeric_state_value(sensor_state)
+            if value is None:
+                continue
+
+            in_range = True
+            if min_value is not None and value < float(min_value):
+                in_range = False
+            if max_value is not None and value > float(max_value):
+                in_range = False
+
+            action = in_action if in_range else out_action
+            if action not in {"turn_on", "turn_off", "toggle"}:
+                continue
+
+            now = self._now_ms()
+            key = f"{rule_id}:{switch_entity}:{action}"
+            last = self.recent_sensor_actions.get(key, 0.0)
+            if (now - last) < cooldown_ms:
+                continue
+
+            ok = await self.call_switch_service(switch_entity, action, source="sensor-rule")
+            if ok:
+                self.recent_sensor_actions[key] = now
+
     async def call_switch_service(self, entity_id: str, action: str, source: str = "ui") -> bool:
-        if not self.session:
-            return False
-        if action not in {"turn_on", "turn_off", "toggle"}:
+        if not self.session or action not in {"turn_on", "turn_off", "toggle"}:
             return False
 
         async with self.session.post(
@@ -336,9 +414,6 @@ class DiagnosticRuntime:
             idx = int(0.95 * (len(sorted_delays) - 1))
             p95 = round(sorted_delays[idx], 2)
 
-        zigbee_count = len(self.zigbee_entities)
-        switches = [entity for entity in self.zigbee_entities if entity["entity_id"].startswith("switch.")]
-
         return {
             "theme": self.grafana_theme,
             "runtime": {
@@ -347,22 +422,39 @@ class DiagnosticRuntime:
                 "last_success_utc": self.last_success_utc,
             },
             "summary": {
-                "zigbee_entities": zigbee_count,
-                "zigbee_switches": len(switches),
+                "zigbee_entities": len(self.zigbee_entities),
+                "zigbee_switches": len([x for x in self.switch_entities if self._is_zigbee_state(self.states.get(x["entity_id"], {}))]),
+                "switches_total": len(self.switch_entities),
+                "sensor_rules": len(self.sensor_rules),
                 "mirror_rules": len(self.mirror_rules),
                 "pending_commands": len(self.pending),
                 "delay_avg_ms": delay_avg,
                 "delay_p95_ms": p95,
                 "delay_max_ms": delay_max,
             },
-            "delay_samples": samples[-120:],
+            "delay_samples": samples[-180:],
             "mirror_rules": self.mirror_rules,
+            "sensor_rules": self.sensor_rules,
             "zigbee_devices": self.zigbee_entities,
+            "switches": self.switch_entities,
+            "sensors": self.sensor_entities,
         }
 
     @staticmethod
     def _now_ms() -> float:
         return datetime.now(tz=UTC).timestamp() * 1000.0
+
+    @staticmethod
+    def _numeric_state_value(item: dict[str, Any]) -> float | None:
+        value = item.get("state")
+        try:
+            if value is None:
+                return None
+            if value in {"unknown", "unavailable"}:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _extract_lqi(item: dict[str, Any]) -> int | None:
@@ -372,6 +464,12 @@ class DiagnosticRuntime:
             if isinstance(value, (int, float)):
                 return int(value)
         return None
+
+    @staticmethod
+    def _is_zigbee_state(item: dict[str, Any]) -> bool:
+        if not item:
+            return False
+        return DiagnosticRuntime._is_zigbee_entity(item)
 
     @staticmethod
     def _is_zigbee_entity(item: dict[str, Any]) -> bool:
@@ -385,9 +483,6 @@ class DiagnosticRuntime:
         if any(key in attrs for key in ("ieee", "linkquality", "lqi", "last_seen")):
             return True
         return False
-
-
-import contextlib
 
 
 runtime = DiagnosticRuntime()
@@ -406,10 +501,11 @@ async def get_zigbee_devices(_: web.Request) -> web.Response:
 
 
 async def get_switches(_: web.Request) -> web.Response:
-    items = [
-        entity for entity in runtime.zigbee_entities if str(entity.get("entity_id", "")).startswith("switch.")
-    ]
-    return web.json_response({"items": items})
+    return web.json_response({"items": runtime.switch_entities})
+
+
+async def get_sensors(_: web.Request) -> web.Response:
+    return web.json_response({"items": runtime.sensor_entities})
 
 
 async def get_mirror_rules(_: web.Request) -> web.Response:
@@ -420,7 +516,7 @@ async def create_mirror_rule(request: web.Request) -> web.Response:
     body = await request.json()
     source = str(body.get("source", "")).strip()
     target = str(body.get("target", "")).strip()
-    bidirectional = bool(body.get("bidirectional", False))
+    bidirectional = bool(body.get("bidirectional", True))
 
     if not source.startswith("switch.") or not target.startswith("switch."):
         return web.json_response({"error": "source i target muszą być switch.*"}, status=400)
@@ -436,12 +532,11 @@ async def create_mirror_rule(request: web.Request) -> web.Response:
         "created_at": datetime.now(tz=UTC).isoformat(),
     }
 
-    existing_ids = {item.get("id") for item in runtime.mirror_rules}
-    if rule["id"] in existing_ids:
+    if any(str(item.get("id")) == rule["id"] for item in runtime.mirror_rules):
         return web.json_response({"error": "Taka reguła już istnieje"}, status=409)
 
     runtime.mirror_rules.append(rule)
-    runtime._save_rules()
+    runtime._save_json(MIRROR_RULES_PATH, runtime.mirror_rules)
     return web.json_response(rule, status=201)
 
 
@@ -451,7 +546,52 @@ async def delete_mirror_rule(request: web.Request) -> web.Response:
     runtime.mirror_rules = [rule for rule in runtime.mirror_rules if str(rule.get("id")) != rule_id]
     if len(runtime.mirror_rules) == before:
         return web.json_response({"error": "Rule not found"}, status=404)
-    runtime._save_rules()
+    runtime._save_json(MIRROR_RULES_PATH, runtime.mirror_rules)
+    return web.json_response({"ok": True})
+
+
+async def get_sensor_rules(_: web.Request) -> web.Response:
+    return web.json_response({"items": runtime.sensor_rules})
+
+
+async def create_sensor_rule(request: web.Request) -> web.Response:
+    body = await request.json()
+    sensor_entity = str(body.get("sensor_entity", "")).strip()
+    switch_entity = str(body.get("switch_entity", "")).strip()
+
+    if not sensor_entity.startswith("sensor."):
+        return web.json_response({"error": "sensor_entity musi być sensor.*"}, status=400)
+    if not switch_entity.startswith("switch."):
+        return web.json_response({"error": "switch_entity musi być switch.*"}, status=400)
+
+    rule = {
+        "id": f"{sensor_entity}->{switch_entity}",
+        "sensor_entity": sensor_entity,
+        "switch_entity": switch_entity,
+        "min_value": body.get("min_value"),
+        "max_value": body.get("max_value"),
+        "action_in_range": str(body.get("action_in_range", "turn_on")),
+        "action_out_of_range": str(body.get("action_out_of_range", "none")),
+        "cooldown_ms": int(body.get("cooldown_ms", 4000)),
+        "enabled": bool(body.get("enabled", True)),
+        "created_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+    if any(str(item.get("id")) == rule["id"] for item in runtime.sensor_rules):
+        return web.json_response({"error": "Taka reguła już istnieje"}, status=409)
+
+    runtime.sensor_rules.append(rule)
+    runtime._save_json(SENSOR_RULES_PATH, runtime.sensor_rules)
+    return web.json_response(rule, status=201)
+
+
+async def delete_sensor_rule(request: web.Request) -> web.Response:
+    rule_id = request.match_info.get("rule_id", "")
+    before = len(runtime.sensor_rules)
+    runtime.sensor_rules = [rule for rule in runtime.sensor_rules if str(rule.get("id")) != rule_id]
+    if len(runtime.sensor_rules) == before:
+        return web.json_response({"error": "Rule not found"}, status=404)
+    runtime._save_json(SENSOR_RULES_PATH, runtime.sensor_rules)
     return web.json_response({"ok": True})
 
 
@@ -491,9 +631,16 @@ def create_app() -> web.Application:
     app.router.add_get("/api/dashboard", dashboard)
     app.router.add_get("/api/zigbee-devices", get_zigbee_devices)
     app.router.add_get("/api/switches", get_switches)
+    app.router.add_get("/api/sensors", get_sensors)
+
     app.router.add_get("/api/mirror-rules", get_mirror_rules)
     app.router.add_post("/api/mirror-rules", create_mirror_rule)
     app.router.add_delete("/api/mirror-rules/{rule_id}", delete_mirror_rule)
+
+    app.router.add_get("/api/sensor-rules", get_sensor_rules)
+    app.router.add_post("/api/sensor-rules", create_sensor_rule)
+    app.router.add_delete("/api/sensor-rules/{rule_id}", delete_sensor_rule)
+
     app.router.add_post("/api/switch-action", switch_action)
     app.router.add_post("/api/refresh", refresh_now)
 

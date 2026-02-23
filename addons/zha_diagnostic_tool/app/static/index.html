@@ -3,63 +3,99 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZHA Diagnostic UI</title>
+    <title>ZHA Diagnostic Desktop</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
     <link rel="stylesheet" href="static/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <div class="title">ZHA Diagnostic UI</div>
-        <div class="subtitle">VSCode-style panel · Grafana-style wykresy · Mirror switch</div>
+    <header class="desktop-titlebar">
+      <div class="app-mark">
+        <i class="mdi mdi-home-assistant"></i>
+        <span>ZHA Diagnostic Desktop</span>
       </div>
-      <div>
-        <button id="refresh-btn">Odśwież</button>
-        <span class="subtitle">Ostatnia aktualizacja: <span id="updated-at">-</span></span>
+      <div class="title-meta">
+        <span class="pill"><i class="mdi mdi-chart-timeline-variant"></i> Grafana-style</span>
+        <span class="pill"><i class="mdi mdi-microsoft-windows"></i> Windows-like UI</span>
+        <button id="refresh-btn"><i class="mdi mdi-refresh"></i> Odśwież</button>
       </div>
     </header>
 
     <div id="status-bar" class="status-bar">Status: inicjalizacja…</div>
 
-    <main class="layout">
-      <section>
-        <div class="card">
-          <h3>KPI delay i stan sieci</h3>
+    <main class="desktop-grid">
+      <section class="window phi-widget">
+        <div class="window-head"><i class="mdi mdi-chart-line"></i> Pulpit: PHI / Delay / Sieć</div>
+        <div class="window-body">
           <div class="kpis">
-            <div class="kpi"><div class="label">Zigbee encje</div><div class="value" id="kpi-entities">-</div></div>
-            <div class="kpi"><div class="label">Zigbee switche</div><div class="value" id="kpi-switches">-</div></div>
-            <div class="kpi"><div class="label">Mirror rules</div><div class="value" id="kpi-rules">-</div></div>
-            <div class="kpi"><div class="label">Delay AVG</div><div class="value" id="kpi-avg">-</div></div>
-            <div class="kpi"><div class="label">Delay p95</div><div class="value" id="kpi-p95">-</div></div>
-            <div class="kpi"><div class="label">Delay MAX</div><div class="value" id="kpi-max">-</div></div>
+            <div class="kpi"><label>Zigbee Encje</label><strong id="kpi-entities">-</strong></div>
+            <div class="kpi"><label>Switche</label><strong id="kpi-switches">-</strong></div>
+            <div class="kpi"><label>Mirror Rules</label><strong id="kpi-rules">-</strong></div>
+            <div class="kpi"><label>Sensor Rules</label><strong id="kpi-srules">-</strong></div>
+            <div class="kpi"><label>Delay AVG</label><strong id="kpi-avg">-</strong></div>
+            <div class="kpi"><label>Delay PHI/P95</label><strong id="kpi-p95">-</strong></div>
+            <div class="kpi"><label>Delay MAX</label><strong id="kpi-max">-</strong></div>
+            <div class="kpi"><label>Pending</label><strong id="kpi-pending">-</strong></div>
           </div>
-        </div>
-
-        <div class="card">
-          <h3>Mirror switch rules</h3>
-          <div class="form">
-            <select id="mirror-source"></select>
-            <select id="mirror-target"></select>
-            <button id="add-rule-btn">Dodaj</button>
-          </div>
-          <label class="meta"><input type="checkbox" id="mirror-bidirectional" /> Bidirectional</label>
-          <div class="list" id="rules-list"></div>
-        </div>
-
-        <div class="card">
-          <h3>Switche Zigbee</h3>
-          <div class="list" id="switch-list"></div>
+          <canvas id="delay-chart" width="1200" height="280"></canvas>
         </div>
       </section>
 
-      <section>
-        <div class="card">
-          <h3>Delay switch → ack (Grafana style)</h3>
-          <canvas id="delay-chart" class="chart" width="900" height="240"></canvas>
+      <section class="window zha-window">
+        <div class="window-head"><i class="mdi mdi-zigbee"></i> Aplikacja: Encje ZHA (Szczegóły)</div>
+        <div class="window-body">
+          <div class="toolbar">
+            <input id="zha-search" placeholder="Szukaj encji ZHA, friendly name, state..." />
+            <span class="meta">Ostatnia aktualizacja: <b id="updated-at">-</b></span>
+          </div>
+          <div id="zha-list" class="list"></div>
         </div>
+      </section>
 
-        <div class="card">
-          <h3>Wszystkie wykryte urządzenia/encje Zigbee</h3>
-          <div class="list" id="device-list"></div>
+      <section class="window switch-window">
+        <div class="window-head"><i class="mdi mdi-toggle-switch"></i> Aplikacja: Switche (Szczegóły + Search)</div>
+        <div class="window-body">
+          <div class="toolbar">
+            <input id="switch-search" placeholder="Szukaj switchy..." />
+          </div>
+          <div id="switch-list" class="list"></div>
+        </div>
+      </section>
+
+      <section class="window mirror-window">
+        <div class="window-head"><i class="mdi mdi-link-variant"></i> Aplikacja: Mirror Switches</div>
+        <div class="window-body">
+          <div class="form-grid mirror-form">
+            <select id="mirror-source"></select>
+            <select id="mirror-target"></select>
+            <label class="checkbox"><input type="checkbox" id="mirror-bidirectional" checked /> Domyślnie w obie strony</label>
+            <button id="add-rule-btn"><i class="mdi mdi-plus"></i> Linkuj encje</button>
+          </div>
+          <div id="rules-list" class="list"></div>
+        </div>
+      </section>
+
+      <section class="window sensor-window">
+        <div class="window-head"><i class="mdi mdi-tune-variant"></i> Aplikacja: Sensor range -> sterowanie switchem</div>
+        <div class="window-body">
+          <div class="form-grid sensor-form">
+            <select id="sensor-entity"></select>
+            <select id="sensor-switch"></select>
+            <input id="sensor-min" type="number" step="any" placeholder="MIN (opcjonalnie)" />
+            <input id="sensor-max" type="number" step="any" placeholder="MAX (opcjonalnie)" />
+            <select id="sensor-in-action">
+              <option value="turn_on">W zakresie: turn_on</option>
+              <option value="turn_off">W zakresie: turn_off</option>
+              <option value="toggle">W zakresie: toggle</option>
+            </select>
+            <select id="sensor-out-action">
+              <option value="none">Poza zakresem: none</option>
+              <option value="turn_on">Poza zakresem: turn_on</option>
+              <option value="turn_off">Poza zakresem: turn_off</option>
+              <option value="toggle">Poza zakresem: toggle</option>
+            </select>
+            <button id="add-sensor-rule-btn"><i class="mdi mdi-plus"></i> Dodaj regułę</button>
+          </div>
+          <div id="sensor-rules-list" class="list"></div>
         </div>
       </section>
     </main>

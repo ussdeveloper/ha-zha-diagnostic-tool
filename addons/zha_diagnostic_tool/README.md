@@ -4,11 +4,14 @@ Add-on z własnym web UI (Ingress), który monitoruje Zigbee i pokazuje metryki 
 
 ## Najważniejsze funkcje
 
-- własny interfejs UI (stylistyka VSCode dark),
+- własny interfejs UI desktop (Windows-like + stylistyka VSCode dark),
+- pełne wykorzystanie dostępnej przestrzeni interfejsu,
 - wykresy opóźnień switch -> ack (Grafana-style time series),
-- lista wszystkich wykrytych encji Zigbee,
+- lista wszystkich wykrytych encji Zigbee z wyszukiwarką,
+- dedykowany panel switchy z wyszukiwarką i akcjami ON/OFF/Toggle,
 - monitorowanie opóźnienia między `switch.turn_on/off/toggle` a potwierdzonym `state_changed`,
-- reguły mirror: możliwość spięcia 2 switchy (one-way lub bidirectional).
+- reguły mirror: możliwość spięcia 2 switchy (domyślnie bidirectional),
+- reguły sensor-range: automatyczne sterowanie switchem, gdy sensor jest w/poza zakresem.
 
 ## Jak działa pomiar delay
 
