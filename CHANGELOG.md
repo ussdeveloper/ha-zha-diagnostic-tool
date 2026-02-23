@@ -4,6 +4,18 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.6.0] - 2026-02-23
+
+### Changed
+- Prawdziwy desktop Win11: ikony na pulpicie otwierające pływające okna.
+- Window Manager (WM): drag, close, minimize, maximize, focus, z-stacking.
+- Taskbar z dynamicznym stanem open/focused.
+- Desktop bloom gradient wallpaper.
+
+### Fixed
+- Crash setStatus null textContent.
+- Canvas sync na ukrytych oknach.
+
 ## [0.5.0] - 2026-02-23
 
 ### Changed

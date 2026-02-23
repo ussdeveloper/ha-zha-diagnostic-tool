@@ -1,5 +1,21 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.5.0] - 2026-02-23
+
+### Changed
+- Prawdziwy desktop Win11: ikony na pulpicie otwierające pływające okna.
+- Window Manager: drag (przeciąganie za titlebar), close, minimize, maximize, focus.
+- Kliknięcie ikony na pulpicie otwiera okno, kliknięcie w taskbar toggle/focus.
+- Okna z animacją otwarcia (scale + opacity).
+- Taskbar z dynamicznym stanem open/focused (kropka pod ikoną).
+- Przycisk Start z ikoną Windows.
+- Tapeta desktop w stylu Win11 dark bloom gradient.
+- Null-safe setStatus — koniec crashy na starcie.
+
+### Fixed
+- TypeError: Cannot set properties of null (setting 'textContent') at setStatus.
+- Canvas sync pomija ukryte okna (offsetParent === null).
+
 ## [0.4.0] - 2026-02-23
 
 ### Changed

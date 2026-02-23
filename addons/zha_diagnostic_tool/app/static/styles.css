@@ -1,4 +1,4 @@
-/* ===== Windows 11 Fluent Design — Dark Mica Theme ===== */
+﻿/* ===== Windows 11 Fluent Design — Dark Desktop ===== */
 :root {
   --mica:        rgba(32, 32, 32, 0.80);
   --mica-solid:  #202020;
@@ -21,9 +21,9 @@
   --radius-sm:   4px;
   --radius-md:   8px;
   --radius-lg:   12px;
-  --shadow-win:  0 8px 32px rgba(0,0,0,0.40), 0 2px 8px rgba(0,0,0,0.20);
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.16);
-  --font:        "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --shadow-win:  0 8px 32px rgba(0,0,0,0.44), 0 2px 8px rgba(0,0,0,0.24);
+  --shadow-focus:0 12px 48px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.35);
+  --font: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -37,120 +37,124 @@ html, body {
 }
 
 body {
-  background: #000000;
-  background-image:
-    radial-gradient(ellipse 120% 80% at 20% 10%, rgba(0,120,212,0.08), transparent 60%),
-    radial-gradient(ellipse 100% 80% at 80% 90%, rgba(96,205,255,0.05), transparent 60%),
-    linear-gradient(180deg, #1a1a2e 0%, #0d0d1a 100%);
   display: flex;
   flex-direction: column;
+  /* Win11 dark wallpaper — abstract bloom gradient */
+  background: #0d1117;
+  background-image:
+    radial-gradient(ellipse 55% 45% at 12% 82%, rgba(0,70,160,0.30), transparent),
+    radial-gradient(ellipse 45% 35% at 88% 18%, rgba(96,205,255,0.10), transparent),
+    radial-gradient(ellipse 60% 50% at 50% 60%, rgba(20,20,55,0.35), transparent),
+    linear-gradient(155deg, #0a0a1a 0%, #101028 35%, #0d1a2e 65%, #080e1a 100%);
 }
 
-/* ===== Desktop Grid ===== */
+/* ===== Desktop surface ===== */
 .desktop {
   flex: 1;
-  min-height: 0;
-  padding: 8px;
-  display: grid;
-  grid-template-columns: 1.15fr 1fr 1fr;
-  grid-template-rows: auto 1fr 1fr 1fr;
-  gap: 8px;
+  position: relative;
   overflow: hidden;
+  min-height: 0;
 }
 
-/* ===== Taskbar (Windows 11 centered) ===== */
-.taskbar {
+/* ===== Desktop shortcut icons ===== */
+.desktop-icons {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: calc(100% - 40px);
+  z-index: 1;
+}
+
+.desktop-shortcut {
+  width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.desktop-shortcut:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+}
+
+.desktop-shortcut:active {
+  background: rgba(255,255,255,0.03);
+}
+
+.desktop-shortcut .shortcut-icon {
+  width: 48px;
   height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 16px;
-  background: var(--mica);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  border-top: 1px solid var(--border);
-  position: relative;
-}
-
-.taskbar-btn {
-  width: 40px; height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-sec);
-  font-size: 20px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-  position: relative;
-}
-
-.taskbar-btn:hover {
-  background: rgba(255,255,255,0.06);
-  color: var(--text);
-}
-
-.taskbar-btn.active {
+  font-size: 34px;
   color: var(--accent);
 }
 
-.taskbar-btn.active::after {
-  content: '';
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 16px;
-  height: 3px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-
-.taskbar-clock {
-  position: absolute;
-  right: 16px;
-  font-size: 12px;
-  color: var(--text-sec);
-  text-align: right;
-  line-height: 1.3;
-}
-
-.taskbar-status {
-  position: absolute;
-  left: 16px;
+.desktop-shortcut span {
   font-size: 11px;
-  color: var(--text-tert);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  text-align: center;
+  line-height: 1.25;
+  word-break: break-word;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7);
+  color: #fff;
 }
 
-.taskbar-status .dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--good);
-  flex-shrink: 0;
-}
-
-.taskbar-status .dot.err { background: var(--bad); }
-
-/* ===== Window Chrome (Win11) ===== */
+/* ===== Floating Windows ===== */
 .window {
+  position: absolute;
+  display: none;
+  flex-direction: column;
   background: var(--mica);
   backdrop-filter: blur(20px) saturate(1.1);
   -webkit-backdrop-filter: blur(20px) saturate(1.1);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-win);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  min-width: 340px;
+  min-height: 180px;
   overflow: hidden;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
 
+.window.open {
+  display: flex;
+  animation: winOpen 0.2s ease-out;
+}
+
+.window.focused {
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: var(--shadow-focus);
+}
+
+.window.maximized {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+}
+
+@keyframes winOpen {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ===== Window Titlebar ===== */
 .window-titlebar {
   height: 36px;
   flex-shrink: 0;
@@ -161,6 +165,7 @@ body {
   background: rgba(255,255,255,0.02);
   border-bottom: 1px solid var(--divider);
   user-select: none;
+  cursor: default;
 }
 
 .window-titlebar .win-icon {
@@ -180,7 +185,6 @@ body {
 
 .window-controls {
   display: flex;
-  gap: 0;
   margin-left: auto;
 }
 
@@ -193,7 +197,7 @@ body {
   border: none;
   color: var(--text-tert);
   font-size: 14px;
-  cursor: default;
+  cursor: pointer;
   border-radius: var(--radius-sm);
   transition: background 0.1s;
 }
@@ -208,6 +212,7 @@ body {
   color: #fff;
 }
 
+/* ===== Window Body ===== */
 .window-body {
   flex: 1;
   min-height: 0;
@@ -218,18 +223,136 @@ body {
   gap: 10px;
 }
 
-/* ===== Grid Placements ===== */
-.phi-widget       { grid-column: 1 / 4; grid-row: 1; }
-.zha-window       { grid-column: 1 / 2; grid-row: 2 / 5; }
-.switch-window    { grid-column: 2 / 3; grid-row: 2; }
-.mirror-window    { grid-column: 2 / 3; grid-row: 3; }
-.sensor-window    { grid-column: 2 / 3; grid-row: 4; }
-.telemetry-window { grid-column: 3 / 4; grid-row: 2 / 5; }
+/* ===== TASKBAR (Win11 centered) ===== */
+.taskbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--mica);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border-top: 1px solid var(--border);
+  z-index: 9999;
+}
+
+.taskbar-start {
+  flex-shrink: 0;
+}
+
+.start-btn {
+  width: 40px; height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 22px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.start-btn:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.taskbar-apps {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.taskbar-app {
+  width: 42px; height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-sec);
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  position: relative;
+}
+
+.taskbar-app:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+}
+
+.taskbar-app.open {
+  color: var(--text);
+}
+
+.taskbar-app.open::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.15s;
+}
+
+.taskbar-app.focused {
+  color: var(--accent);
+}
+
+.taskbar-app.focused::after {
+  width: 18px;
+}
+
+.taskbar-tray {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.taskbar-status {
+  font-size: 11px;
+  color: var(--text-tert);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.taskbar-status .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+  flex-shrink: 0;
+}
+
+.taskbar-status .dot.err { background: var(--bad); }
+
+.taskbar-clock {
+  font-size: 12px;
+  color: var(--text-sec);
+  text-align: right;
+  line-height: 1.3;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s;
+}
+
+.taskbar-clock:hover {
+  background: rgba(255,255,255,0.04);
+}
 
 /* ===== KPI Strip ===== */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(85px, 1fr));
   gap: 8px;
 }
 
@@ -237,28 +360,19 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-.kpi label {
-  font-size: 11px;
-  color: var(--text-tert);
-  font-weight: 400;
-}
-
-.kpi strong {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text);
-}
+.kpi label { font-size: 10px; color: var(--text-tert); font-weight: 400; }
+.kpi strong { font-size: 17px; font-weight: 600; color: var(--text); }
 
 /* ===== Canvas Charts ===== */
 #delay-chart {
   width: 100%;
-  height: 190px;
+  height: 170px;
   flex: none;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -286,11 +400,7 @@ body {
 
 .toolbar input { flex: 1; }
 
-.meta {
-  font-size: 11px;
-  color: var(--text-tert);
-  white-space: nowrap;
-}
+.meta { font-size: 11px; color: var(--text-tert); white-space: nowrap; }
 
 /* ===== Form Controls ===== */
 input, select {
@@ -306,13 +416,10 @@ input, select {
   transition: border 0.15s;
 }
 
-input:focus, select:focus {
-  border-color: var(--accent);
-}
-
+input:focus, select:focus { border-color: var(--accent); }
 input::placeholder { color: var(--text-tert); }
 
-/* ===== Buttons (Win11 Fluent) ===== */
+/* ===== Buttons ===== */
 button {
   background: var(--surface);
   color: var(--text);
@@ -322,7 +429,7 @@ button {
   font-family: var(--font);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.12s, border 0.12s;
+  transition: background 0.12s;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -376,16 +483,9 @@ button.accent:hover { background: var(--accent-hover); }
   font-weight: 600;
 }
 
-.entity-title .mdi {
-  color: var(--accent);
-  font-size: 16px;
-}
+.entity-title .mdi { color: var(--accent); font-size: 16px; }
 
-.entity-sub {
-  font-size: 11px;
-  color: var(--text-tert);
-  margin-top: 2px;
-}
+.entity-sub { font-size: 11px; color: var(--text-tert); margin-top: 2px; }
 
 .right-actions {
   display: flex;
@@ -394,10 +494,7 @@ button.accent:hover { background: var(--accent-hover); }
   flex-shrink: 0;
 }
 
-.right-actions button {
-  padding: 4px 8px;
-  font-size: 12px;
-}
+.right-actions button { padding: 4px 8px; font-size: 12px; }
 
 /* ===== Badges ===== */
 .badge {
@@ -414,14 +511,9 @@ button.accent:hover { background: var(--accent-hover); }
 .badge.mid { color: var(--warn); border-color: rgba(252,225,0,0.3); }
 
 /* ===== Forms ===== */
-.form-grid {
-  display: grid;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.mirror-form  { grid-template-columns: 1fr 1fr auto auto; }
-.sensor-form  { grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr auto; }
+.form-grid { display: grid; gap: 8px; flex-shrink: 0; }
+.mirror-form { grid-template-columns: 1fr 1fr auto auto; }
+.sensor-form { grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr auto; }
 
 .checkbox {
   display: flex;
@@ -432,7 +524,7 @@ button.accent:hover { background: var(--accent-hover); }
   white-space: nowrap;
 }
 
-/* ===== Telemetry Split ===== */
+/* ===== Telemetry split ===== */
 .telemetry-body {
   display: flex;
   flex-direction: column;
@@ -478,21 +570,11 @@ button.accent:hover { background: var(--accent-hover); }
 }
 
 /* ===== Responsive ===== */
-@media (max-width: 1500px) {
-  .desktop {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto 1fr 1fr 1fr 1fr 1fr;
-    overflow-y: auto;
+@media (max-width: 900px) {
+  .sensor-form { grid-template-columns: 1fr 1fr 1fr; }
+  .mirror-form { grid-template-columns: 1fr 1fr; }
+  .window.open:not(.maximized) {
+    width: calc(100% - 16px) !important;
+    left: 8px !important;
   }
-
-  .phi-widget       { grid-column: 1 / 3; grid-row: 1; }
-  .zha-window       { grid-column: 1 / 2; grid-row: 2 / 5; }
-  .switch-window    { grid-column: 2 / 3; grid-row: 2; }
-  .mirror-window    { grid-column: 2 / 3; grid-row: 3; }
-  .sensor-window    { grid-column: 2 / 3; grid-row: 4; }
-  .telemetry-window { grid-column: 1 / 3; grid-row: 5 / 7; }
-
-  .kpis             { grid-template-columns: repeat(4, 1fr); }
-  .sensor-form      { grid-template-columns: 1fr 1fr 1fr; }
-  .mirror-form      { grid-template-columns: 1fr 1fr; }
 }
