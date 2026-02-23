@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.4) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.5) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -270,9 +270,9 @@ const WM = {
       win.addEventListener("mousedown", () => this.focus(win.id));
     });
 
-    /* Desktop shortcut icons -> open window */
+    /* Desktop shortcut icons -> open window on DOUBLE-click (single-click only selects) */
     document.querySelectorAll(".desktop-shortcut").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("dblclick", () => {
         const winId = btn.dataset.win;
         if (winId) this.open(winId);
       });
@@ -2103,13 +2103,16 @@ function initDesktopIconDrag() {
         }
         const dx = e2.clientX - startX;
         const dy = e2.clientY - startY;
-        getAllIcons().filter(b => b.classList.contains("dragging")).forEach(b => {
+        const dragging = getAllIcons().filter(b => b.classList.contains("dragging"));
+        dragging.forEach(b => {
           b.style.left = Math.max(0, Math.min(window.innerWidth  - b.offsetWidth,  b._ox + dx)) + "px";
           b.style.top  = Math.max(0, Math.min(window.innerHeight - b.offsetHeight - 52, b._oy + dy)) + "px";
         });
-        // Highlight folder under cursor
+        // Highlight folder under cursor — hide dragging icons first so elementFromPoint sees through them
+        dragging.forEach(b => b.style.pointerEvents = "none");
         const hotEl = document.elementFromPoint(e2.clientX, e2.clientY);
-        const hoverFolder = hotEl?.closest(".desktop-folder:not(.icon-selected)");
+        dragging.forEach(b => b.style.pointerEvents = "");
+        const hoverFolder = hotEl?.closest(".desktop-folder");
         desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => {
           if (f !== hoverFolder) f.classList.remove("drag-over");
         });
@@ -2122,7 +2125,7 @@ function initDesktopIconDrag() {
         desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => f.classList.remove("drag-over"));
 
         if (!moved) {
-          // Plain click — update selection
+          // Plain click — update selection only, suppress open
           if (e.ctrlKey) {
             if (state.desktopSelected.has(key) && state.desktopSelected.size > 1) setSelected(btn, false);
             else setSelected(btn, true);
@@ -2130,14 +2133,22 @@ function initDesktopIconDrag() {
             clearSelection();
             setSelected(btn, true);
           }
+          // Absorb the click event so WM.open doesn't fire on single-click
+          document.addEventListener("click", (ev) => { ev.stopImmediatePropagation(); ev.preventDefault(); }, { capture: true, once: true });
           return;
         }
 
+        // We dragged — suppress the click the browser fires after mouseup
+        document.addEventListener("click", (ev) => { ev.stopImmediatePropagation(); ev.preventDefault(); }, { capture: true, once: true });
+
         const draggingIcons = getAllIcons().filter(b => b.classList.contains("dragging"));
 
-        // Check drop on folder
+        // Hide dragging icons so elementFromPoint sees the folder below them
+        draggingIcons.forEach(b => b.style.pointerEvents = "none");
         const hotEl = document.elementFromPoint(e2.clientX, e2.clientY);
-        const targetFolder = hotEl?.closest(".desktop-folder:not(.icon-selected)");
+        draggingIcons.forEach(b => b.style.pointerEvents = "");
+
+        const targetFolder = hotEl?.closest(".desktop-folder");
         if (targetFolder) {
           const folderId = targetFolder.dataset.folderId;
           const folderData = state.folders.find(f => f.id == folderId);
