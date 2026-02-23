@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.2) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.3) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -1942,8 +1942,6 @@ function initEntityDropTargets() {
 
   desktop.addEventListener("dragover", (e) => {
     if (!e.dataTransfer.types.includes("application/x-entity")) return;
-    // Only allow if not hovering over a window
-    if (e.target.closest(".window")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
     // Folder hover highlight
@@ -1987,10 +1985,8 @@ function initEntityDropTargets() {
       }
     }
 
-    // Drop on desktop background → create entity shortcut
-    if (!e.target.closest(".window")) {
-      addEntityShortcut(payload, e.clientX, e.clientY);
-    }
+    // Drop anywhere on desktop → create entity shortcut at cursor position
+    addEntityShortcut(payload, e.clientX, e.clientY);
   });
 }
 
