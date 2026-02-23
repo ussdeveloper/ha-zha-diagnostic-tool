@@ -1186,3 +1186,27 @@ button.danger:hover { background: #a62115; }
   flex-shrink: 0;
   padding: 0 2px;
 }
+
+/* ===== Desktop icon selection ===== */
+.desktop-shortcut.icon-selected,
+.desktop-folder.icon-selected {
+  background: rgba(96,205,255,0.18);
+  border-color: rgba(96,205,255,0.6);
+}
+
+/* Rubber-band lasso */
+#desktop-lasso {
+  position: fixed;
+  border: 1.5px dashed var(--accent);
+  background: rgba(96,205,255,0.07);
+  pointer-events: none;
+  z-index: 9998;
+  display: none;
+}
+
+/* Disabled context menu item */
+.ctx-item-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}

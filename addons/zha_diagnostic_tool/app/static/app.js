@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.3) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.4) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -28,6 +28,8 @@ const state = {
   iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
   batterySelected: new Set(),
   entityShortcuts: JSON.parse(localStorage.getItem("zha_entity_shortcuts") || "[]"),
+  desktopSelected: new Set(),
+  desktopClipboard: [],
 };
 
 /* ---------- DOM helpers (null-safe) ---------- */
@@ -1997,54 +1999,184 @@ function initDesktopIconDrag() {
   const desktop = $("desktop");
   if (!desktop) return;
 
+  // Create lasso element
+  let lassoEl = document.getElementById("desktop-lasso");
+  if (!lassoEl) {
+    lassoEl = document.createElement("div");
+    lassoEl.id = "desktop-lasso";
+    document.body.appendChild(lassoEl);
+  }
+
+  function getIconKey(btn) {
+    return btn.dataset.win || btn.dataset.folderId || btn.textContent.trim().slice(0, 30);
+  }
+
+  function getAllIcons() {
+    return Array.from(desktop.querySelectorAll(".desktop-shortcut, .desktop-folder"));
+  }
+
+  function setSelected(btn, on) {
+    const key = getIconKey(btn);
+    if (on) { btn.classList.add("icon-selected"); state.desktopSelected.add(key); }
+    else     { btn.classList.remove("icon-selected"); state.desktopSelected.delete(key); }
+  }
+
+  function clearSelection() {
+    getAllIcons().forEach(b => b.classList.remove("icon-selected"));
+    state.desktopSelected.clear();
+  }
+
+  // Rubber-band lasso on the desktop background
+  desktop.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".desktop-shortcut, .desktop-folder, .window, #taskbar")) return;
+
+    const startX = e.clientX, startY = e.clientY;
+    let lassoActive = false;
+    if (!e.ctrlKey) clearSelection();
+
+    const onMove = (e2) => {
+      if (!lassoActive && Math.hypot(e2.clientX - startX, e2.clientY - startY) < 5) return;
+      lassoActive = true;
+      const x = Math.min(startX, e2.clientX);
+      const y = Math.min(startY, e2.clientY);
+      const w = Math.abs(e2.clientX - startX);
+      const h = Math.abs(e2.clientY - startY);
+      lassoEl.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      const lr = { left: x, top: y, right: x + w, bottom: y + h };
+      getAllIcons().forEach(icon => {
+        const r = icon.getBoundingClientRect();
+        const hit = !(r.right < lr.left || r.left > lr.right || r.bottom < lr.top || r.top > lr.bottom);
+        if (e.ctrlKey) { if (hit) setSelected(icon, true); }
+        else setSelected(icon, hit);
+      });
+    };
+
+    const onUp = () => {
+      lassoEl.style.display = "none";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+
   function makeIconDraggable(btn) {
-    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    const key = btn.dataset.win || btn.dataset.folderId || btn.textContent.trim().slice(0, 30);
+    const key = getIconKey(btn);
 
     // Restore saved position
     const saved = state.iconPositions[key];
     if (saved) {
       btn.style.position = "fixed";
       btn.style.left = saved.x + "px";
-      btn.style.top = saved.y + "px";
+      btn.style.top  = saved.y + "px";
     }
 
     btn.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
-      // Distinguish click vs drag: start drag only after 5px movement
-      const startX = e.clientX, startY2 = e.clientY;
+      e.stopPropagation(); // prevent lasso triggering
+
+      const startX = e.clientX, startY = e.clientY;
       let moved = false;
 
+      // Make sure this icon is included in selection
+      if (!state.desktopSelected.has(key)) {
+        if (!e.ctrlKey) clearSelection();
+        setSelected(btn, true);
+      }
+
       const onMove = (e2) => {
-        if (!moved && Math.hypot(e2.clientX - startX, e2.clientY - startY2) < 5) return;
+        if (!moved && Math.hypot(e2.clientX - startX, e2.clientY - startY) < 5) return;
         if (!moved) {
           moved = true;
-          dragging = true;
-          sx = startX; sy = startY2;
-          const rect = btn.getBoundingClientRect();
-          ox = rect.left; oy = rect.top;
-          btn.style.position = "fixed";
-          btn.style.left = ox + "px";
-          btn.style.top = oy + "px";
-          btn.classList.add("dragging");
+          // Capture initial positions of all selected icons
+          getAllIcons().filter(b => b.classList.contains("icon-selected")).forEach(b => {
+            const r = b.getBoundingClientRect();
+            b._ox = r.left; b._oy = r.top;
+            b.style.position = "fixed";
+            b.style.left = r.left + "px";
+            b.style.top  = r.top  + "px";
+            b.classList.add("dragging");
+            b.style.zIndex = 10001;
+          });
         }
-        if (!dragging) return;
-        const nx = Math.max(0, Math.min(window.innerWidth - btn.offsetWidth, ox + e2.clientX - sx));
-        const ny = Math.max(0, Math.min(window.innerHeight - btn.offsetHeight - 52, oy + e2.clientY - sy));
-        btn.style.left = nx + "px";
-        btn.style.top = ny + "px";
+        const dx = e2.clientX - startX;
+        const dy = e2.clientY - startY;
+        getAllIcons().filter(b => b.classList.contains("dragging")).forEach(b => {
+          b.style.left = Math.max(0, Math.min(window.innerWidth  - b.offsetWidth,  b._ox + dx)) + "px";
+          b.style.top  = Math.max(0, Math.min(window.innerHeight - b.offsetHeight - 52, b._oy + dy)) + "px";
+        });
+        // Highlight folder under cursor
+        const hotEl = document.elementFromPoint(e2.clientX, e2.clientY);
+        const hoverFolder = hotEl?.closest(".desktop-folder:not(.icon-selected)");
+        desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => {
+          if (f !== hoverFolder) f.classList.remove("drag-over");
+        });
+        if (hoverFolder) hoverFolder.classList.add("drag-over");
       };
 
-      const onUp = () => {
+      const onUp = (e2) => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        if (dragging) {
-          dragging = false;
-          btn.classList.remove("dragging");
-          const pos = { x: parseFloat(btn.style.left), y: parseFloat(btn.style.top) };
-          state.iconPositions[key] = pos;
-          localStorage.setItem("zha_icon_positions", JSON.stringify(state.iconPositions));
+        desktop.querySelectorAll(".desktop-folder.drag-over").forEach(f => f.classList.remove("drag-over"));
+
+        if (!moved) {
+          // Plain click — update selection
+          if (e.ctrlKey) {
+            if (state.desktopSelected.has(key) && state.desktopSelected.size > 1) setSelected(btn, false);
+            else setSelected(btn, true);
+          } else {
+            clearSelection();
+            setSelected(btn, true);
+          }
+          return;
         }
+
+        const draggingIcons = getAllIcons().filter(b => b.classList.contains("dragging"));
+
+        // Check drop on folder
+        const hotEl = document.elementFromPoint(e2.clientX, e2.clientY);
+        const targetFolder = hotEl?.closest(".desktop-folder:not(.icon-selected)");
+        if (targetFolder) {
+          const folderId = targetFolder.dataset.folderId;
+          const folderData = state.folders.find(f => f.id == folderId);
+          if (folderData) {
+            if (!folderData.entities) folderData.entities = [];
+            const removed = [];
+            draggingIcons.forEach(b => {
+              if (b.classList.contains("desktop-entity-shortcut")) {
+                const eid = b.title;
+                if (eid && !folderData.entities.includes(eid)) folderData.entities.push(eid);
+                removed.push(eid);
+              }
+              b.classList.remove("dragging", "icon-selected");
+              b.style.zIndex = "";
+              b._ox = null; b._oy = null;
+            });
+            if (removed.length) {
+              state.entityShortcuts = state.entityShortcuts.filter(s => !removed.includes(s.entity_id));
+              removed.forEach(eid => delete state.iconPositions["entity_" + eid]);
+              localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
+              localStorage.setItem("zha_icon_positions",   JSON.stringify(state.iconPositions));
+              localStorage.setItem("zha_desktop_folders",  JSON.stringify(state.folders));
+              state.desktopSelected.clear();
+              renderEntityShortcuts();
+              renderDesktopFolders();
+            }
+            return;
+          }
+        }
+
+        // Save new positions for all dragged icons
+        draggingIcons.forEach(b => {
+          b.classList.remove("dragging");
+          b.style.zIndex = "";
+          const k = getIconKey(b);
+          state.iconPositions[k] = { x: parseFloat(b.style.left), y: parseFloat(b.style.top) };
+          b._ox = null; b._oy = null;
+        });
+        localStorage.setItem("zha_icon_positions", JSON.stringify(state.iconPositions));
       };
 
       document.addEventListener("mousemove", onMove);
@@ -2052,8 +2184,7 @@ function initDesktopIconDrag() {
     });
   }
 
-  document.querySelectorAll(".desktop-shortcut, .desktop-folder").forEach(makeIconDraggable);
-  // Re-apply when folders are re-rendered
+  getAllIcons().forEach(makeIconDraggable);
   window._makeIconDraggable = makeIconDraggable;
 }
 
@@ -2464,37 +2595,102 @@ function initContextMenu() {
     if (e.target.closest(".window")) return;
     e.preventDefault();
 
-    const clickedFolder = e.target.closest(".desktop-folder");
-    menu.innerHTML = "";
+    const clickedFolder        = e.target.closest(".desktop-folder");
+    const clickedEntityShortcut = e.target.closest(".desktop-entity-shortcut");
+    const hasSel = state.desktopSelected.size > 0;
+    const hasClip = state.desktopClipboard.length > 0;
 
+    const selLabel = hasSel ? ` (${state.desktopSelected.size})` : "";
+    const pasteDisabled = hasClip ? "" : " ctx-item-disabled";
+
+    const copyPaste =
+      `<div class="ctx-divider"></div>` +
+      `<div class="ctx-item" data-action="copy-selected"><i class="mdi mdi-content-copy"></i> Copy${selLabel}</div>` +
+      `<div class="ctx-item${pasteDisabled}" data-action="paste"><i class="mdi mdi-content-paste"></i> Paste</div>`;
+
+    menu.innerHTML = "";
     if (clickedFolder) {
       const fid = clickedFolder.dataset.folderId;
       menu.innerHTML =
-        `<div class="ctx-item" data-action="folder-open" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-folder-open"></i> Open</div>` +
-        `<div class="ctx-item" data-action="folder-props" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-cog"></i> Properties</div>` +
+        `<div class="ctx-item" data-action="folder-open"   data-fid="${escapeHtml(fid)}"><i class="mdi mdi-folder-open"></i> Open</div>` +
+        `<div class="ctx-item" data-action="folder-props"  data-fid="${escapeHtml(fid)}"><i class="mdi mdi-cog"></i> Properties</div>` +
         `<div class="ctx-divider"></div>` +
-        `<div class="ctx-item" data-action="folder-delete" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-delete"></i> Delete</div>`;
+        `<div class="ctx-item" data-action="folder-delete" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-delete"></i> Delete</div>` +
+        copyPaste;
+    } else if (clickedEntityShortcut) {
+      const eid = clickedEntityShortcut.title;
+      menu.innerHTML =
+        `<div class="ctx-item" data-action="entity-open"   data-eid="${escapeHtml(eid)}"><i class="mdi mdi-open-in-app"></i> Open</div>` +
+        `<div class="ctx-item" data-action="entity-remove" data-eid="${escapeHtml(eid)}"><i class="mdi mdi-link-off"></i> Remove Shortcut</div>` +
+        copyPaste;
     } else {
       menu.innerHTML =
         `<div class="ctx-item" data-action="new-folder"><i class="mdi mdi-folder-plus"></i> New Folder</div>` +
         `<div class="ctx-divider"></div>` +
-        `<div class="ctx-item" data-action="refresh"><i class="mdi mdi-refresh"></i> Refresh</div>`;
+        `<div class="ctx-item" data-action="refresh"><i class="mdi mdi-refresh"></i> Refresh</div>` +
+        copyPaste;
     }
 
-    menu.style.left = e.clientX + "px";
-    menu.style.top = e.clientY + "px";
+    // Clamp menu inside viewport
+    const menuX = Math.min(e.clientX, window.innerWidth  - 190);
+    const menuY = Math.min(e.clientY, window.innerHeight - 200);
+    menu.style.left = menuX + "px";
+    menu.style.top  = menuY + "px";
+    menu.dataset.dropX = e.clientX;
+    menu.dataset.dropY = e.clientY;
     menu.classList.add("open");
 
-    menu.querySelectorAll(".ctx-item").forEach((item) => {
+    menu.querySelectorAll(".ctx-item:not(.ctx-item-disabled)").forEach((item) => {
       item.addEventListener("click", () => {
         const action = item.dataset.action;
-        const fid = item.dataset.fid;
+        const fid    = item.dataset.fid;
+        const eid    = item.dataset.eid;
         menu.classList.remove("open");
-        if (action === "new-folder") createFolder();
-        else if (action === "refresh") load();
-        else if (action === "folder-open") openFolderWindow(fid);
-        else if (action === "folder-props") openFolderDialog(fid);
-        else if (action === "folder-delete") { deleteFolder(fid); }
+
+        if (action === "new-folder")     createFolder();
+        else if (action === "refresh")   load();
+        else if (action === "folder-open")   openFolderWindow(fid);
+        else if (action === "folder-props")  openFolderDialog(fid);
+        else if (action === "folder-delete") deleteFolder(fid);
+        else if (action === "entity-open") {
+          const sc = state.entityShortcuts.find(s => s.entity_id === eid);
+          if (sc) openDeviceDetail(sc);
+        }
+        else if (action === "entity-remove") {
+          state.entityShortcuts = state.entityShortcuts.filter(s => s.entity_id !== eid);
+          delete state.iconPositions["entity_" + eid];
+          localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
+          localStorage.setItem("zha_icon_positions",   JSON.stringify(state.iconPositions));
+          renderEntityShortcuts();
+        }
+        else if (action === "copy-selected") {
+          state.desktopClipboard = [];
+          const d = $("desktop");
+          d?.querySelectorAll(".desktop-shortcut.icon-selected, .desktop-folder.icon-selected").forEach(b => {
+            if (b.classList.contains("desktop-entity-shortcut")) {
+              const sc = state.entityShortcuts.find(s => s.entity_id === b.title);
+              if (sc) state.desktopClipboard.push({ type: "entity", data: { ...sc } });
+            } else if (!b.classList.contains("desktop-folder")) {
+              state.desktopClipboard.push({ type: "window", key: b.dataset.win });
+            }
+          });
+        }
+        else if (action === "paste") {
+          const px = parseInt(menu.dataset.dropX) || 200;
+          const py = parseInt(menu.dataset.dropY) || 200;
+          state.desktopClipboard.forEach((item, i) => {
+            if (item.type === "entity") {
+              const sc  = { ...item.data, position: { x: px + i * 14, y: py + i * 14 } };
+              const idx = state.entityShortcuts.findIndex(s => s.entity_id === sc.entity_id);
+              if (idx >= 0) state.entityShortcuts[idx] = sc;
+              else state.entityShortcuts.push(sc);
+              state.iconPositions["entity_" + sc.entity_id] = sc.position;
+            }
+          });
+          localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
+          localStorage.setItem("zha_icon_positions",   JSON.stringify(state.iconPositions));
+          renderEntityShortcuts();
+        }
       }, { once: true });
     });
   });
