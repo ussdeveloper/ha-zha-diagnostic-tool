@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.9.0] - 2026-02-23
+
+### Added
+- Device Helper Explorer window: ZHA device configuration tool with cluster browsing, attribute read/write, ZCL help descriptions, identify command, and keep-alive periodic pings.
+- Battery history charts: real data from HA History API with 5-minute lookback.
+- Phone battery entities in Battery Monitor (any HA entity with battery data).
+- Keep-alive CRUD API endpoints and periodic evaluation task.
+- ZHA device helper API: devices list, clusters, attributes, read/write, command endpoints.
+
+### Fixed
+- CSS caching issue: stripped ETag/Last-Modified headers, added Expires: 0. Static files always re-fetch.
+
+### Changed
+- Test server: mock ZHA devices/clusters, battery history with timestamps.
+- Cache-bust version v=080.
+
 ## [0.8.0] - 2026-02-23
 
 ### Added

@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 from collections import deque
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import logging
 import os
@@ -23,6 +23,7 @@ OPTIONS_PATH = Path("/data/options.json")
 MIRROR_RULES_PATH = Path("/config/zha_diagnostic_mirror_rules.json")
 SENSOR_RULES_PATH = Path("/config/zha_diagnostic_sensor_rules.json")
 BATTERY_ALERTS_PATH = Path("/config/zha_diagnostic_battery_alerts.json")
+KEEPALIVE_PATH = Path("/config/zha_diagnostic_keepalive.json")
 STATIC_DIR = Path(__file__).parent / "static"
 
 ZIGBEE_KEYWORDS = ("zigbee", "zha", "deconz", "zigbee2mqtt", "bellows", "ezsp")
@@ -72,6 +73,8 @@ class DiagnosticRuntime:
         self.mirror_rules: list[dict[str, Any]] = self._load_json(MIRROR_RULES_PATH, default=[])
         self.sensor_rules: list[dict[str, Any]] = self._load_json(SENSOR_RULES_PATH, default=[])
         self.battery_alerts: list[dict[str, Any]] = self._load_json(BATTERY_ALERTS_PATH, default=[])
+        self.keepalive_configs: list[dict[str, Any]] = self._load_json(KEEPALIVE_PATH, default=[])
+        self._last_battery_history_ts: float = 0.0
 
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
@@ -126,6 +129,8 @@ class DiagnosticRuntime:
             try:
                 await self.refresh_states()
                 self._check_command_timeouts()
+                await self._maybe_fetch_battery_history()
+                await self._evaluate_keepalive()
                 self.last_error = None
             except Exception as exc:  # noqa: BLE001
                 self.last_error = str(exc)
@@ -285,6 +290,98 @@ class DiagnosticRuntime:
                     await self._handle_ws_message(json.loads(msg.data))
                 elif msg.type in {WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR}:
                     raise RuntimeError("Websocket closed")
+
+    async def _ws_command(self, command_data: dict[str, Any]) -> dict[str, Any]:
+        """Send a single WS command and return the response."""
+        if not self.session:
+            raise RuntimeError("No session available")
+        async with self.session.ws_connect(SUPERVISOR_WS, heartbeat=25) as ws:
+            auth_req = await ws.receive_json(timeout=15)
+            if auth_req.get("type") != "auth_required":
+                raise RuntimeError(f"Unexpected WS auth: {auth_req}")
+            await ws.send_json({"type": "auth", "access_token": self.token})
+            auth_ok = await ws.receive_json(timeout=15)
+            if auth_ok.get("type") != "auth_ok":
+                raise RuntimeError(f"WS auth failed: {auth_ok}")
+            await ws.send_json({"id": 1, **command_data})
+            while True:
+                msg = await ws.receive(timeout=30)
+                if msg.type == WSMsgType.TEXT:
+                    resp = json.loads(msg.data)
+                    if resp.get("id") == 1:
+                        return resp
+                elif msg.type in {WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR}:
+                    raise RuntimeError("WS closed during command")
+
+    async def _maybe_fetch_battery_history(self) -> None:
+        now = datetime.now(tz=UTC).timestamp()
+        if now - self._last_battery_history_ts < 30:
+            return
+        self._last_battery_history_ts = now
+        await self._fetch_battery_history()
+
+    async def _fetch_battery_history(self) -> None:
+        if not self.session or not self.battery_entities:
+            return
+        try:
+            start = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+            entity_ids = ",".join(e["entity_id"] for e in self.battery_entities[:20])
+            async with self.session.get(
+                f"{SUPERVISOR_API}/history/period/{start}",
+                params={"filter_entity_id": entity_ids, "minimal_response": "", "significant_changes_only": ""},
+                timeout=ClientTimeout(total=20),
+            ) as response:
+                if response.status >= 300:
+                    return
+                history = await response.json()
+
+            history_map: dict[str, list[dict[str, Any]]] = {}
+            for entity_history in history:
+                if not entity_history:
+                    continue
+                eid = entity_history[0].get("entity_id")
+                points: list[dict[str, Any]] = []
+                for point in entity_history:
+                    try:
+                        val = float(point.get("state", ""))
+                        points.append({"ts": point.get("last_changed"), "value": val})
+                    except (TypeError, ValueError):
+                        pass
+                if eid and points:
+                    history_map[eid] = points
+
+            for entity in self.battery_entities:
+                entity["battery_history"] = history_map.get(entity["entity_id"], [])
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("Battery history fetch error: %s", exc)
+
+    async def _evaluate_keepalive(self) -> None:
+        if not self.keepalive_configs:
+            return
+        now = datetime.now(tz=UTC).timestamp()
+        for cfg in self.keepalive_configs:
+            if not cfg.get("enabled", False):
+                continue
+            interval = int(cfg.get("interval_seconds", 60))
+            last_sent = cfg.get("last_sent") or 0.0
+            if now - last_sent < interval:
+                continue
+            ieee = str(cfg.get("ieee", ""))
+            endpoint_id = int(cfg.get("endpoint_id", 1))
+            if not ieee:
+                continue
+            try:
+                await self._ws_command({
+                    "type": "zha/devices/clusters/attributes/value",
+                    "ieee": ieee,
+                    "endpoint_id": endpoint_id,
+                    "cluster_id": 0,
+                    "cluster_type": "in",
+                    "attribute": 0,
+                })
+                cfg["last_sent"] = now
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug("Keepalive error for %s: %s", ieee, exc)
 
     async def _handle_ws_message(self, data: dict[str, Any]) -> None:
         if data.get("type") != "event":
@@ -852,6 +949,195 @@ async def delete_battery_alert(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+# ---- ZHA Device Helper ----
+
+
+async def get_zha_devices_helper(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/devices"})
+        if resp.get("success"):
+            return web.json_response({"items": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def get_zha_clusters(request: web.Request) -> web.Response:
+    ieee = request.match_info.get("ieee", "")
+    try:
+        resp = await runtime._ws_command({"type": "zha/devices/clusters", "ieee": ieee})
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def get_zha_cluster_attributes(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    endpoint_id = int(body.get("endpoint_id", 1))
+    cluster_id = int(body.get("cluster_id", 0))
+    cluster_type = str(body.get("cluster_type", "in"))
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/devices/clusters/attributes",
+            "ieee": ieee,
+            "endpoint_id": endpoint_id,
+            "cluster_id": cluster_id,
+            "cluster_type": cluster_type,
+        })
+        if resp.get("success"):
+            return web.json_response({"attributes": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def zha_read_attribute(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    endpoint_id = int(body.get("endpoint_id", 1))
+    cluster_id = int(body.get("cluster_id", 0))
+    cluster_type = str(body.get("cluster_type", "in"))
+    attribute = body.get("attribute", 0)
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/devices/clusters/attributes/value",
+            "ieee": ieee,
+            "endpoint_id": endpoint_id,
+            "cluster_id": cluster_id,
+            "cluster_type": cluster_type,
+            "attribute": attribute,
+        })
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def zha_write_attribute(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    endpoint_id = int(body.get("endpoint_id", 1))
+    cluster_id = int(body.get("cluster_id", 0))
+    cluster_type = str(body.get("cluster_type", "in"))
+    attribute = body.get("attribute", 0)
+    value = body.get("value")
+    manufacturer = body.get("manufacturer")
+
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+
+    try:
+        if not runtime.session:
+            return web.json_response({"error": "No session"}, status=500)
+        svc_data: dict[str, Any] = {
+            "ieee": ieee,
+            "endpoint_id": endpoint_id,
+            "cluster_id": cluster_id,
+            "cluster_type": cluster_type,
+            "attribute": attribute,
+            "value": value,
+        }
+        if manufacturer is not None:
+            svc_data["manufacturer"] = manufacturer
+        async with runtime.session.post(
+            f"{SUPERVISOR_API}/services/zha/set_zigbee_cluster_attribute",
+            json=svc_data,
+            timeout=ClientTimeout(total=30),
+        ) as response:
+            if response.status >= 300:
+                text = await response.text()
+                return web.json_response({"error": text[:200]}, status=response.status)
+            return web.json_response({"ok": True})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def zha_command(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    endpoint_id = int(body.get("endpoint_id", 1))
+    cluster_id = int(body.get("cluster_id", 0))
+    cluster_type = str(body.get("cluster_type", "in"))
+    command = int(body.get("command", 0))
+    command_type = str(body.get("command_type", "server"))
+
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+
+    try:
+        if not runtime.session:
+            return web.json_response({"error": "No session"}, status=500)
+        async with runtime.session.post(
+            f"{SUPERVISOR_API}/services/zha/issue_zigbee_cluster_command",
+            json={
+                "ieee": ieee,
+                "endpoint_id": endpoint_id,
+                "cluster_id": cluster_id,
+                "cluster_type": cluster_type,
+                "command": command,
+                "command_type": command_type,
+            },
+            timeout=ClientTimeout(total=30),
+        ) as response:
+            if response.status >= 300:
+                text = await response.text()
+                return web.json_response({"error": text[:200]}, status=response.status)
+            return web.json_response({"ok": True})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- Keepalive CRUD ----
+
+
+async def get_keepalive_configs(_: web.Request) -> web.Response:
+    return web.json_response({"items": runtime.keepalive_configs})
+
+
+async def create_keepalive(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", "")).strip()
+    endpoint_id = int(body.get("endpoint_id", 1))
+    interval = int(body.get("interval_seconds", 60))
+    enabled = bool(body.get("enabled", True))
+
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+
+    cfg = {
+        "id": f"ka-{ieee}",
+        "ieee": ieee,
+        "endpoint_id": endpoint_id,
+        "interval_seconds": max(10, min(3600, interval)),
+        "enabled": enabled,
+        "last_sent": None,
+        "created_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+    existing = next((c for c in runtime.keepalive_configs if c.get("id") == cfg["id"]), None)
+    if existing:
+        existing.update(cfg)
+    else:
+        runtime.keepalive_configs.append(cfg)
+
+    runtime._save_json(KEEPALIVE_PATH, runtime.keepalive_configs)
+    return web.json_response(cfg, status=201)
+
+
+async def delete_keepalive(request: web.Request) -> web.Response:
+    ka_id = request.match_info.get("ka_id", "")
+    before = len(runtime.keepalive_configs)
+    runtime.keepalive_configs = [c for c in runtime.keepalive_configs if str(c.get("id")) != ka_id]
+    if len(runtime.keepalive_configs) == before:
+        return web.json_response({"error": "Not found"}, status=404)
+    runtime._save_json(KEEPALIVE_PATH, runtime.keepalive_configs)
+    return web.json_response({"ok": True})
+
+
 async def on_startup(_: web.Application) -> None:
     await runtime.start()
 
@@ -867,6 +1153,9 @@ def create_app() -> web.Application:
         if request.path.startswith("/static") or request.path == "/":
             resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+            for hdr in ("ETag", "Last-Modified"):
+                resp.headers.pop(hdr, None)
         return resp
 
     app = web.Application(middlewares=[no_cache_middleware])
@@ -892,6 +1181,17 @@ def create_app() -> web.Application:
     app.router.add_get("/api/battery-alerts", get_battery_alerts)
     app.router.add_post("/api/battery-alerts", create_battery_alert)
     app.router.add_delete("/api/battery-alerts/{alert_id}", delete_battery_alert)
+
+    app.router.add_get("/api/zha-helper/devices", get_zha_devices_helper)
+    app.router.add_get("/api/zha-helper/clusters/{ieee}", get_zha_clusters)
+    app.router.add_post("/api/zha-helper/attributes", get_zha_cluster_attributes)
+    app.router.add_post("/api/zha-helper/read-attribute", zha_read_attribute)
+    app.router.add_post("/api/zha-helper/write-attribute", zha_write_attribute)
+    app.router.add_post("/api/zha-helper/command", zha_command)
+
+    app.router.add_get("/api/keepalive", get_keepalive_configs)
+    app.router.add_post("/api/keepalive", create_keepalive)
+    app.router.add_delete("/api/keepalive/{ka_id}", delete_keepalive)
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

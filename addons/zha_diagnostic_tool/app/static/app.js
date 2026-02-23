@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.7.0) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.8.0) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -18,6 +18,9 @@ const state = {
   folders: JSON.parse(localStorage.getItem("zha_desktop_folders") || "[]"),
   netMap: { zoom: 1, panX: 0, panY: 0 },
   deviceWinCount: 0,
+  devHelperDevices: [],
+  devHelperSelected: null,
+  devHelperKeepAlive: [],
 };
 
 /* ---------- DOM helpers (null-safe) ---------- */
@@ -203,6 +206,7 @@ const WM = {
     "sensor-win":    { w: 620, h: 360, x: 330, y: 75  },
     "battery-win":   { w: 720, h: 520, x: 160, y: 45  },
     "netmap-win":    { w: 700, h: 560, x: 200, y: 25  },
+    "devhelper-win": { w: 820, h: 560, x: 140, y: 30  },
   },
 
   init() {
@@ -331,6 +335,10 @@ const WM = {
       renderBatteryChart(state.batteryItems);
     if (id === "netmap-win")
       renderNetworkMap();
+    if (id === "devhelper-win" && !state.devHelperDevices.length) {
+      loadDevHelperDevices();
+      loadDevHelperKeepAlive();
+    }
   },
 
   _updateTaskbar() {
@@ -1239,6 +1247,368 @@ function initNetworkMap() {
 }
 
 /* ========================================================
+   DEVICE HELPER EXPLORER
+   ======================================================== */
+
+const ZCL_HELP = {
+  0: { name: "Basic", attrs: {
+    0: { n: "zcl_version", h: "ZCL version" },
+    3: { n: "hw_version", h: "Hardware version" },
+    4: { n: "manufacturer_name", h: "Manufacturer name" },
+    5: { n: "model_identifier", h: "Model ID" },
+    7: { n: "power_source", h: "Power source: 1=Mains, 3=Battery" },
+    16384: { n: "sw_build_id", h: "Software build" },
+  }},
+  1: { name: "Power Config", attrs: {
+    32: { n: "battery_voltage", h: "Battery voltage (100mV units)" },
+    33: { n: "battery_%_remaining", h: "Battery % (0-200, /2 for %)" },
+  }},
+  3: { name: "Identify", attrs: {
+    0: { n: "identify_time", h: "Write >0 to blink device (seconds)" },
+  }},
+  6: { name: "On/Off", attrs: {
+    0: { n: "on_off", h: "0=Off, 1=On" },
+    16387: { n: "start_up_on_off", h: "Startup: 0=Off, 1=On, 2=Toggle, 255=Previous" },
+  }},
+  8: { name: "Level Control", attrs: {
+    0: { n: "current_level", h: "Brightness (0-254)" },
+    16: { n: "on_off_transition_time", h: "Transition 1/10s" },
+    16384: { n: "start_up_current_level", h: "Startup level: 0=min, 255=prev" },
+  }},
+  32: { name: "Poll Control", attrs: {
+    0: { n: "check_in_interval", h: "Check-in (quarter-sec). Lower = responsive, more battery" },
+    1: { n: "long_poll_interval", h: "Long poll (quarter-sec)" },
+    2: { n: "short_poll_interval", h: "Short poll (quarter-sec)" },
+    3: { n: "fast_poll_timeout", h: "Fast poll timeout (quarter-sec)" },
+  }},
+  768: { name: "Color Control", attrs: {
+    0: { n: "current_hue", h: "Hue (0-254)" },
+    1: { n: "current_saturation", h: "Saturation (0-254)" },
+    7: { n: "color_temperature", h: "Color temp (mireds)" },
+    8: { n: "color_mode", h: "0=HS, 1=XY, 2=CT" },
+  }},
+  1026: { name: "Temperature", attrs: {
+    0: { n: "measured_value", h: "Temp in 0.01\u00B0C" },
+  }},
+  1029: { name: "Humidity", attrs: {
+    0: { n: "measured_value", h: "Humidity in 0.01%" },
+  }},
+  1030: { name: "Occupancy", attrs: {
+    0: { n: "occupancy", h: "0=Unoccupied, 1=Occupied" },
+    1: { n: "occupancy_sensor_type", h: "0=PIR, 1=Ultrasonic, 2=Both" },
+    16: { n: "pir_o_to_u_delay", h: "Occ\u2192Unocc delay (sec). Increase for longer hold." },
+    17: { n: "pir_u_to_o_delay", h: "Unocc\u2192Occ delay (sec)" },
+    18: { n: "pir_u_to_o_threshold", h: "Sensitivity. Lower = more sensitive." },
+  }},
+  1280: { name: "IAS Zone", attrs: {
+    0: { n: "zone_state", h: "0=Not enrolled, 1=Enrolled" },
+    1: { n: "zone_type", h: "Zone type (motion, contact, fire...)" },
+    2: { n: "zone_status", h: "Zone status bitmap" },
+  }},
+  2820: { name: "Electrical", attrs: {
+    1285: { n: "rms_voltage", h: "RMS voltage (V)" },
+    1288: { n: "rms_current", h: "RMS current (mA)" },
+    1291: { n: "active_power", h: "Active power (W)" },
+  }},
+};
+
+async function loadDevHelperDevices() {
+  try {
+    const data = await api("api/zha-helper/devices");
+    state.devHelperDevices = data.items || [];
+    renderDevHelperDevices();
+  } catch (e) {
+    const host = $("devhelper-device-list");
+    if (host) host.innerHTML = `<div class="row"><div class="entity-sub">Error: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderDevHelperDevices() {
+  const host = $("devhelper-device-list");
+  if (!host) return;
+  const q = ($("devhelper-search")?.value || "").trim().toLowerCase();
+  host.innerHTML = "";
+
+  const items = state.devHelperDevices.filter(dev =>
+    !q || `${dev.name || ""} ${dev.manufacturer || ""} ${dev.model || ""} ${dev.ieee || ""} ${dev.user_given_name || ""}`.toLowerCase().includes(q)
+  );
+
+  if (!items.length) {
+    host.innerHTML = '<div class="row"><div class="entity-sub">No devices found</div></div>';
+    return;
+  }
+
+  for (const dev of items) {
+    const row = document.createElement("div");
+    row.className = "row" + (state.devHelperSelected?.ieee === dev.ieee ? " selected" : "");
+    row.style.cursor = "pointer";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "entity-title";
+    const icon = document.createElement("i");
+    icon.className = "mdi mdi-zigbee";
+    title.appendChild(icon);
+    title.appendChild(document.createTextNode(dev.user_given_name || dev.name || dev.ieee));
+    const sub = document.createElement("div");
+    sub.className = "entity-sub";
+    sub.textContent = `${dev.manufacturer || "?"} \u00B7 ${dev.model || "?"} \u00B7 ${dev.ieee || ""}`;
+    left.appendChild(title);
+    left.appendChild(sub);
+    row.appendChild(left);
+    row.addEventListener("click", () => selectDevHelperDevice(dev));
+    host.appendChild(row);
+  }
+}
+
+async function selectDevHelperDevice(dev) {
+  state.devHelperSelected = dev;
+  renderDevHelperDevices();
+
+  const info = $("devhelper-device-info");
+  if (info) {
+    info.innerHTML =
+      `<div class="dev-name">${escapeHtml(dev.user_given_name || dev.name || dev.ieee)}</div>` +
+      `<div class="dev-detail">${escapeHtml(dev.manufacturer || "?")} \u00B7 ${escapeHtml(dev.model || "?")} \u00B7 IEEE: ${escapeHtml(dev.ieee || "")}</div>` +
+      `<div class="dev-detail">NWK: ${dev.nwk || "?"} \u00B7 Quirk: ${dev.quirk_applied ? "Yes" : "No"}</div>`;
+  }
+
+  const identBtn = $("devhelper-identify-btn");
+  if (identBtn) identBtn.disabled = false;
+  const saveBtn = $("devhelper-save-keepalive-btn");
+  if (saveBtn) saveBtn.disabled = false;
+
+  const kaCfg = state.devHelperKeepAlive.find(c => c.ieee === dev.ieee);
+  const kaChk = $("devhelper-keepalive-chk");
+  const kaInt = $("devhelper-keepalive-interval");
+  if (kaChk) kaChk.checked = kaCfg?.enabled || false;
+  if (kaInt) kaInt.value = kaCfg?.interval_seconds || 60;
+
+  await loadDevHelperClusters(dev.ieee);
+}
+
+async function loadDevHelperClusters(ieee) {
+  const host = $("devhelper-clusters");
+  if (!host) return;
+  host.innerHTML = '<div class="row"><div class="entity-sub">Loading clusters...</div></div>';
+
+  try {
+    const data = await api(`api/zha-helper/clusters/${encodeURIComponent(ieee)}`);
+    renderDevHelperClusters(ieee, data);
+  } catch (e) {
+    host.innerHTML = `<div class="row"><div class="entity-sub">Error: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderDevHelperClusters(ieee, clusterData) {
+  const host = $("devhelper-clusters");
+  if (!host) return;
+  host.innerHTML = "";
+
+  let endpoints = [];
+  if (Array.isArray(clusterData)) {
+    endpoints = clusterData;
+  } else if (clusterData && typeof clusterData === "object") {
+    for (const [epId, epData] of Object.entries(clusterData)) {
+      if (typeof epData === "object" && epData !== null) {
+        endpoints.push({ endpoint_id: parseInt(epId, 10) || 1, ...epData });
+      }
+    }
+  }
+
+  if (!endpoints.length) {
+    host.innerHTML = '<div class="row"><div class="entity-sub">No clusters found</div></div>';
+    return;
+  }
+
+  for (const ep of endpoints) {
+    const epId = ep.endpoint_id ?? ep.id ?? 1;
+    const inClusters = ep.clusters?.in || ep.in_clusters || [];
+    const outClusters = ep.clusters?.out || ep.out_clusters || [];
+    const allClusters = [
+      ...inClusters.map(c => ({ ...c, cluster_type: "in" })),
+      ...outClusters.map(c => ({ ...c, cluster_type: "out" })),
+    ];
+
+    if (endpoints.length > 1 || epId !== 1) {
+      const epHeader = document.createElement("div");
+      epHeader.className = "row";
+      epHeader.style.background = "var(--surface)";
+      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId}</div>`;
+      host.appendChild(epHeader);
+    }
+
+    for (const cluster of allClusters) {
+      const cId = cluster.id ?? cluster.cluster_id ?? 0;
+      const cName = cluster.name || ZCL_HELP[cId]?.name || `Cluster ${cId}`;
+      const cType = cluster.cluster_type || "in";
+
+      const header = document.createElement("div");
+      header.className = "cluster-header";
+      header.innerHTML =
+        `<i class="mdi mdi-chevron-right"></i>` +
+        `<span>${escapeHtml(cName)}</span>` +
+        `<span class="entity-sub" style="margin-left:auto">0x${cId.toString(16).padStart(4, "0")} (${cType})</span>`;
+
+      const attrs = document.createElement("div");
+      attrs.className = "cluster-attrs";
+
+      header.addEventListener("click", async () => {
+        const wasOpen = attrs.classList.contains("open");
+        attrs.classList.toggle("open");
+        header.classList.toggle("open");
+        if (!wasOpen && !attrs.dataset.loaded) {
+          attrs.dataset.loaded = "1";
+          attrs.innerHTML = '<div class="entity-sub">Loading attributes...</div>';
+          try {
+            const attrData = await api("api/zha-helper/attributes", {
+              method: "POST",
+              body: JSON.stringify({ ieee, endpoint_id: epId, cluster_id: cId, cluster_type: cType }),
+            });
+            renderClusterAttributes(attrs, ieee, epId, cId, cType, attrData.attributes || []);
+          } catch (e) {
+            attrs.innerHTML = `<div class="entity-sub">Error: ${escapeHtml(e.message)}</div>`;
+          }
+        }
+      });
+
+      host.appendChild(header);
+      host.appendChild(attrs);
+    }
+  }
+}
+
+function renderClusterAttributes(container, ieee, endpointId, clusterId, clusterType, attributes) {
+  container.innerHTML = "";
+  const zclCluster = ZCL_HELP[clusterId];
+
+  if (!attributes.length) {
+    container.innerHTML = '<div class="entity-sub">No attributes</div>';
+    return;
+  }
+
+  for (const attr of attributes) {
+    const attrId = attr.id ?? attr.attribute ?? 0;
+    const attrName = attr.name || zclCluster?.attrs?.[attrId]?.n || `attr_${attrId}`;
+    const helpText = zclCluster?.attrs?.[attrId]?.h || "";
+
+    const row = document.createElement("div");
+    row.className = "attr-row";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "attr-name";
+    nameEl.innerHTML = `<code>${escapeHtml(attrName)}</code> <span class="entity-sub">[${attrId}]</span>`;
+
+    const valInput = document.createElement("input");
+    valInput.className = "attr-val";
+    valInput.placeholder = "\u2014";
+    valInput.title = "Attribute value";
+
+    const readBtn = document.createElement("button");
+    readBtn.textContent = "Read";
+    readBtn.addEventListener("click", async () => {
+      readBtn.disabled = true;
+      try {
+        const res = await api("api/zha-helper/read-attribute", {
+          method: "POST",
+          body: JSON.stringify({ ieee, endpoint_id: endpointId, cluster_id: clusterId, cluster_type: clusterType, attribute: attrId }),
+        });
+        const keys = Object.keys(res);
+        valInput.value = keys.length ? String(res[keys[0]]) : JSON.stringify(res);
+      } catch (e) {
+        valInput.value = "ERR";
+        valInput.title = e.message;
+      }
+      readBtn.disabled = false;
+    });
+
+    const writeBtn = document.createElement("button");
+    writeBtn.textContent = "Write";
+    writeBtn.addEventListener("click", async () => {
+      const raw = valInput.value.trim();
+      if (raw === "") return;
+      let value = isNaN(Number(raw)) ? raw : Number(raw);
+      writeBtn.disabled = true;
+      try {
+        await api("api/zha-helper/write-attribute", {
+          method: "POST",
+          body: JSON.stringify({ ieee, endpoint_id: endpointId, cluster_id: clusterId, cluster_type: clusterType, attribute: attrId, value }),
+        });
+        writeBtn.textContent = "\u2713";
+        setTimeout(() => { writeBtn.textContent = "Write"; }, 1500);
+      } catch (e) {
+        alert(`Write error: ${e.message}`);
+      }
+      writeBtn.disabled = false;
+    });
+
+    row.appendChild(nameEl);
+    if (helpText) {
+      const helpEl = document.createElement("span");
+      helpEl.className = "attr-help";
+      helpEl.textContent = helpText;
+      helpEl.title = helpText;
+      row.appendChild(helpEl);
+    }
+    row.appendChild(valInput);
+    row.appendChild(readBtn);
+    row.appendChild(writeBtn);
+    container.appendChild(row);
+  }
+}
+
+async function devHelperIdentify() {
+  const dev = state.devHelperSelected;
+  if (!dev) return;
+  try {
+    await api("api/zha-helper/command", {
+      method: "POST",
+      body: JSON.stringify({
+        ieee: dev.ieee,
+        endpoint_id: 1,
+        cluster_id: 3,
+        cluster_type: "in",
+        command: 0,
+        command_type: "server",
+      }),
+    });
+    setStatus(`Identify sent to ${dev.name || dev.ieee}`, false);
+  } catch (e) {
+    setStatus(`Identify error: ${e.message}`, true);
+  }
+}
+
+async function devHelperSaveKeepAlive() {
+  const dev = state.devHelperSelected;
+  if (!dev) return;
+  const enabled = $("devhelper-keepalive-chk")?.checked || false;
+  const interval = parseInt($("devhelper-keepalive-interval")?.value || "60", 10);
+  try {
+    await api("api/keepalive", {
+      method: "POST",
+      body: JSON.stringify({
+        ieee: dev.ieee,
+        endpoint_id: 1,
+        interval_seconds: interval,
+        enabled,
+      }),
+    });
+    await loadDevHelperKeepAlive();
+    setStatus(`Keep-alive ${enabled ? "enabled" : "disabled"} for ${dev.user_given_name || dev.name || dev.ieee}`, false);
+  } catch (e) {
+    setStatus(`Keep-alive error: ${e.message}`, true);
+  }
+}
+
+async function loadDevHelperKeepAlive() {
+  try {
+    const data = await api("api/keepalive");
+    state.devHelperKeepAlive = data.items || [];
+  } catch (e) {
+    state.devHelperKeepAlive = [];
+  }
+}
+
+/* ========================================================
    CONTEXT MENU
    ======================================================== */
 function initContextMenu() {
@@ -1672,6 +2042,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* Network map mouse events */
   initNetworkMap();
+
+  /* Device Helper */
+  $("devhelper-search")?.addEventListener("input", renderDevHelperDevices);
+  $("devhelper-identify-btn")?.addEventListener("click", devHelperIdentify);
+  $("devhelper-save-keepalive-btn")?.addEventListener("click", devHelperSaveKeepAlive);
 
   /* Auto-open KPI window on start */
   WM.open("kpi-win");

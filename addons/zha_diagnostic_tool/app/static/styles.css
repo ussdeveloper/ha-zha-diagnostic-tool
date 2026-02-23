@@ -858,6 +858,86 @@ button.danger:hover { background: #a62115; }
 .row.cmd-timeout .entity-title .mdi { color: var(--bad); }
 .row.cmd-sent .entity-title .mdi { color: var(--warn); }
 
+/* ===== Device Helper Explorer ===== */
+.devhelper-body {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+}
+.devhelper-left {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.devhelper-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.devhelper-info {
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.devhelper-info .dev-name { font-size: 14px; font-weight: 600; }
+.devhelper-info .dev-detail { font-size: 11px; color: var(--text-tert); margin-top: 2px; }
+.devhelper-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.cluster-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--divider);
+  transition: background 0.1s;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cluster-header:hover { background: rgba(255,255,255,0.03); }
+.cluster-header .mdi { color: var(--accent); font-size: 14px; transition: transform 0.15s; }
+.cluster-header.open .mdi-chevron-right { transform: rotate(90deg); }
+.cluster-attrs {
+  display: none;
+  padding: 4px 12px 8px 28px;
+  border-bottom: 1px solid var(--divider);
+}
+.cluster-attrs.open { display: block; }
+.attr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.attr-row .attr-name { flex: 1; min-width: 0; }
+.attr-row .attr-name code { font-size: 11px; color: var(--text-sec); }
+.attr-row .attr-val { width: 100px; font-size: 12px; padding: 4px 6px; }
+.attr-row .attr-help {
+  font-size: 10px;
+  color: var(--text-tert);
+  cursor: help;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attr-row button { padding: 2px 8px; font-size: 11px; }
+#devhelper-device-list .row.selected {
+  background: rgba(96,205,255,0.1);
+  border-left: 2px solid var(--accent);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .sensor-form { grid-template-columns: 1fr 1fr 1fr; }

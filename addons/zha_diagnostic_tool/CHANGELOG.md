@@ -1,5 +1,23 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.8.0] - 2026-02-23
+
+### Added
+- Device Helper Explorer: new window for ZHA device configuration and cluster management.
+  - Browse all ZHA devices with search, view endpoints and clusters.
+  - Read/write individual Zigbee cluster attributes with ZCL help descriptions.
+  - Identify button: send identify command to make device blink.
+  - Keep-alive system: periodic attribute reads to keep sleepy devices responsive.
+- Battery history charts from HA History API (5-minute lookback, refreshed every 30s).
+- Phone battery entities visible in Battery Monitor (all HA entities with battery data).
+
+### Fixed
+- CSS/JS caching: enhanced no-cache middleware to strip ETag and Last-Modified headers, add Expires: 0. No more reinstall needed for CSS updates.
+
+### Changed
+- Cache-bust version bumped to ?v=080 on CSS/JS includes.
+- Test server updated with mock ZHA device/cluster data and battery history timestamps.
+
 ## [0.7.0] - 2026-02-23
 
 ### Added
