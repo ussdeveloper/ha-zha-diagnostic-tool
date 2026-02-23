@@ -580,7 +580,9 @@ runtime = DiagnosticRuntime()
 
 
 async def index(_: web.Request) -> web.FileResponse:
-    return web.FileResponse(STATIC_DIR / "index.html")
+    resp = web.FileResponse(STATIC_DIR / "index.html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 async def dashboard(_: web.Request) -> web.Response:
@@ -715,7 +717,15 @@ async def on_cleanup(_: web.Application) -> None:
 
 
 def create_app() -> web.Application:
-    app = web.Application()
+    @web.middleware
+    async def no_cache_middleware(request: web.Request, handler):
+        resp = await handler(request)
+        if request.path.startswith("/static") or request.path == "/":
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+        return resp
+
+    app = web.Application(middlewares=[no_cache_middleware])
     app.router.add_get("/", index)
     app.router.add_static("/static", str(STATIC_DIR), show_index=False)
 

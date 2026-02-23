@@ -76,14 +76,14 @@ const WM = {
   zIndex: 100,
   focusedId: null,
 
-  /* Default size & position for each window */
+  /* Default size & position — cascade from top-left */
   defaults: {
-    "kpi-win":       { w: 860, h: 350, x: 120, y: 20  },
-    "zha-win":       { w: 560, h: 480, x: 160, y: 70  },
-    "switch-win":    { w: 600, h: 440, x: 240, y: 50  },
-    "telemetry-win": { w: 700, h: 500, x: 320, y: 30  },
-    "mirror-win":    { w: 620, h: 360, x: 280, y: 120 },
-    "sensor-win":    { w: 660, h: 380, x: 360, y: 100 },
+    "kpi-win":       { w: 840, h: 320, x: 130, y: 15  },
+    "zha-win":       { w: 520, h: 440, x: 170, y: 55  },
+    "switch-win":    { w: 580, h: 400, x: 210, y: 95  },
+    "telemetry-win": { w: 680, h: 480, x: 250, y: 35  },
+    "mirror-win":    { w: 580, h: 340, x: 290, y: 135 },
+    "sensor-win":    { w: 620, h: 360, x: 330, y: 75  },
   },
 
   init() {

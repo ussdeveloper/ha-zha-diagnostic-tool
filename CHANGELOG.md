@@ -4,6 +4,12 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.6.1] - 2026-02-23
+
+### Fixed
+- Cache-busting CSS/JS + no-cache middleware.
+- Ulepszone pozycje okien.
+
 ## [0.6.0] - 2026-02-23
 
 ### Changed

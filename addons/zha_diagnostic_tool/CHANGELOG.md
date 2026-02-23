@@ -1,5 +1,12 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.5.1] - 2026-02-23
+
+### Fixed
+- Cache-busting: query param `?v=` na CSS/JS w HTML.
+- Middleware `no-cache` na static + index — przeglądarka/HA Ingress nie cachują starych plików.
+- Lepsze pozycje okien (cascade from top-left).
+
 ## [0.5.0] - 2026-02-23
 
 ### Changed
