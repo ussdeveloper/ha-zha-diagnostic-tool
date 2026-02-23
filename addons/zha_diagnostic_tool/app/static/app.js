@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.6.0) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.7.0) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -12,8 +12,12 @@ const state = {
   notifyEntities: [],
   telemetrySpikes: [],
   telemetryEvents: [],
+  commandLog: [],
   refreshTimer: null,
   loading: false,
+  folders: JSON.parse(localStorage.getItem("zha_desktop_folders") || "[]"),
+  netMap: { zoom: 1, panX: 0, panY: 0 },
+  deviceWinCount: 0,
 };
 
 /* ---------- DOM helpers (null-safe) ---------- */
@@ -62,14 +66,13 @@ function setStatus(text, isError) {
 /* ---------- Clock ---------- */
 function tickClock() {
   const now = new Date();
+  const Y = now.getFullYear();
+  const M = String(now.getMonth() + 1).padStart(2, "0");
+  const D = String(now.getDate()).padStart(2, "0");
   const h = String(now.getHours()).padStart(2, "0");
   const m = String(now.getMinutes()).padStart(2, "0");
-  const d = now.toLocaleDateString("en-US", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-  setHTML("taskbar-clock", `${h}:${m}<br>${d}`);
+  const s = String(now.getSeconds()).padStart(2, "0");
+  setHTML("taskbar-clock", `${h}:${m}:${s}<br>${Y}-${M}-${D}`);
 }
 
 /* ========================================================
@@ -165,6 +168,24 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+/* ---------- Date formatting YYYY-MM-DD HH:MM:SS ---------- */
+function fmtDate(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const Y = d.getFullYear();
+  const M = String(d.getMonth() + 1).padStart(2, "0");
+  const D = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
+}
+
+function fmtNow() {
+  return fmtDate(new Date().toISOString());
+}
+
 /* ========================================================
    WINDOW MANAGER — open, close, focus, drag, maximize, resize
    ======================================================== */
@@ -181,6 +202,7 @@ const WM = {
     "mirror-win":    { w: 580, h: 340, x: 290, y: 135 },
     "sensor-win":    { w: 620, h: 360, x: 330, y: 75  },
     "battery-win":   { w: 720, h: 520, x: 160, y: 45  },
+    "netmap-win":    { w: 700, h: 560, x: 200, y: 25  },
   },
 
   init() {
@@ -307,6 +329,8 @@ const WM = {
       renderTelemetryChart(state.telemetrySpikes);
     if (id === "battery-win")
       renderBatteryChart(state.batteryItems);
+    if (id === "netmap-win")
+      renderNetworkMap();
   },
 
   _updateTaskbar() {
@@ -398,7 +422,24 @@ function setSummary(s) {
   setText("kpi-avg", s.delay_avg_ms == null ? "-" : `${s.delay_avg_ms} ms`);
   setText("kpi-p95", s.delay_p95_ms == null ? "-" : `${s.delay_p95_ms} ms`);
   setText("kpi-max", s.delay_max_ms == null ? "-" : `${s.delay_max_ms} ms`);
-  setText("kpi-pending", s.pending_commands ?? "-");
+
+  const pendEl = $("kpi-pending");
+  if (pendEl) {
+    pendEl.textContent = s.pending_commands ?? "-";
+    pendEl.className = (s.pending_commands > 0) ? "val-warn" : "";
+  }
+  const errEl = $("kpi-errors");
+  if (errEl) {
+    const errs = s.command_errors ?? 0;
+    errEl.textContent = errs;
+    errEl.className = errs > 0 ? "val-bad" : "";
+  }
+  const succEl = $("kpi-success");
+  if (succEl) {
+    const rate = s.command_success_rate;
+    succEl.textContent = rate != null ? `${rate}%` : "-";
+    if (rate != null) succEl.className = rate < 90 ? "val-bad" : rate < 99 ? "val-warn" : "val-good";
+  }
 }
 
 /* ----- Delay chart ----- */
@@ -525,20 +566,46 @@ function renderTelemetryChart(spikes) {
   }
 }
 
-/* ----- Telemetry log ----- */
-function renderTelemetryLog(events) {
+/* ----- Telemetry log (merged events + command log) ----- */
+function renderTelemetryLog(events, commandLog) {
   const host = $("telemetry-log");
   if (!host) return;
   host.innerHTML = "";
-  const rows = (events || []).slice(-200).reverse();
+
+  const merged = [];
+  for (const ev of (events || [])) {
+    merged.push({ ...ev, _src: "event" });
+  }
+  for (const cmd of (commandLog || [])) {
+    merged.push({
+      type: "command",
+      summary: `${cmd.action} \u2192 ${cmd.entity_id}${cmd.status === "confirmed" ? ` (${cmd.delay_ms}ms)` : cmd.status === "timeout" ? " TIMEOUT" : ""}`,
+      ts: cmd.ts,
+      _src: "cmd",
+      _status: cmd.status,
+    });
+  }
+  merged.sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+
+  const rows = merged.slice(0, 300);
   for (const ev of rows) {
     const row = document.createElement("div");
-    row.className = "row";
+    if (ev._src === "cmd") {
+      row.className = `row cmd-${ev._status || "sent"}`;
+    } else {
+      row.className = "row";
+    }
     const left = document.createElement("div");
     const title = document.createElement("div");
     title.className = "entity-title";
     const icon = document.createElement("i");
-    icon.className = "mdi mdi-flash";
+    if (ev._src === "cmd") {
+      icon.className = ev._status === "confirmed" ? "mdi mdi-check-circle"
+        : ev._status === "timeout" ? "mdi mdi-alert-circle"
+        : "mdi mdi-send";
+    } else {
+      icon.className = "mdi mdi-flash";
+    }
     title.appendChild(icon);
     title.appendChild(document.createTextNode(ev.type || "event"));
     const sub = document.createElement("div");
@@ -548,7 +615,7 @@ function renderTelemetryLog(events) {
     left.appendChild(sub);
     const ts = document.createElement("div");
     ts.className = "entity-sub";
-    ts.textContent = ev.ts || "-";
+    ts.textContent = fmtDate(ev.ts);
     row.appendChild(left);
     row.appendChild(ts);
     host.appendChild(row);
@@ -586,11 +653,13 @@ function renderZhaList() {
     );
     const sub = document.createElement("div");
     sub.className = "entity-sub";
-    sub.textContent = `${it.entity_id} \u00B7 LQI: ${it.lqi ?? "-"} \u00B7 ${it.last_updated ?? "-"}`;
+    sub.textContent = `${it.entity_id}${it.lqi != null ? " \u00B7 LQI: " + it.lqi : ""} \u00B7 ${fmtDate(it.last_updated)}`;
     left.appendChild(title);
     left.appendChild(sub);
     row.appendChild(left);
     row.appendChild(makeBadge(it.state));
+    row.addEventListener("dblclick", () => openDeviceDetail(it));
+    row.style.cursor = "pointer";
     host.appendChild(row);
   }
 }
@@ -906,6 +975,498 @@ function renderBatteryAlerts(alerts) {
   }
 }
 
+/* ========================================================
+   DEVICE DETAIL (Dynamic Window on double-click)
+   ======================================================== */
+function openDeviceDetail(entityItem) {
+  const winId = `dev-${++state.deviceWinCount}`;
+  const eid = entityItem.entity_id;
+
+  /* Find related entities by device prefix heuristic */
+  const parts = eid.split(".", 2);
+  const namePart = parts.length > 1 ? parts[1] : eid;
+  let deviceKey = namePart;
+  const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
+    "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
+    "_contact", "_vibration", "_rssi", "_lqi", "_linkquality"];
+  for (const sfx of suffixes) {
+    if (namePart.endsWith(sfx)) { deviceKey = namePart.slice(0, -sfx.length); break; }
+  }
+
+  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+  const related = allEntities.filter(e => e.entity_id.includes(deviceKey));
+  const unique = [...new Map(related.map(e => [e.entity_id, e])).values()];
+
+  /* Related telemetry */
+  const deviceEvents = state.telemetryEvents
+    .filter(ev => (ev.summary || "").includes(deviceKey))
+    .slice(-20);
+  const deviceCommands = state.commandLog
+    .filter(cmd => cmd.entity_id && cmd.entity_id.includes(deviceKey))
+    .slice(-20);
+
+  const iconCls = entityItem.icon?.startsWith("mdi:") ? entityItem.icon.replace(":", "-") : "mdi-zigbee";
+
+  /* Build entities HTML */
+  let entitiesHtml = "";
+  for (const e of unique) {
+    const lqiStr = e.lqi != null ? ` \u00B7 LQI: ${e.lqi}` : "";
+    const ic = e.icon?.startsWith("mdi:") ? e.icon.replace(":", "-") : "mdi-zigbee";
+    entitiesHtml += `<div class="row"><div>` +
+      `<div class="entity-title"><i class="mdi ${ic}"></i> ${escapeHtml(e.friendly_name || e.entity_id)}</div>` +
+      `<div class="entity-sub">${escapeHtml(e.entity_id)}${lqiStr} \u00B7 ${fmtDate(e.last_updated)}</div>` +
+      `</div><span class="badge ${e.state === "on" ? "on" : e.state === "off" ? "off" : "mid"}">${escapeHtml(e.state || "-")}</span></div>`;
+  }
+
+  /* Build activity log HTML */
+  const logItems = [
+    ...deviceEvents.map(ev => ({ ...ev, _src: "event" })),
+    ...deviceCommands.map(cmd => ({
+      type: "command",
+      summary: `${cmd.action} \u2192 ${cmd.entity_id} ${cmd.status === "confirmed" ? `(${cmd.delay_ms}ms)` : cmd.status === "timeout" ? "TIMEOUT" : ""}`,
+      ts: cmd.ts, _src: "cmd", _status: cmd.status,
+    }))
+  ].sort((a, b) => (b.ts || "").localeCompare(a.ts || "")).slice(0, 30);
+
+  let logHtml = "";
+  for (const ev of logItems) {
+    const cls = ev._src === "cmd" ? `cmd-${ev._status || "sent"}` : "";
+    const ic2 = ev._src === "cmd"
+      ? (ev._status === "confirmed" ? "mdi-check-circle" : ev._status === "timeout" ? "mdi-alert-circle" : "mdi-send")
+      : "mdi-flash";
+    logHtml += `<div class="row ${cls}"><div>` +
+      `<div class="entity-title"><i class="mdi ${ic2}"></i> ${escapeHtml(ev.type || "event")}</div>` +
+      `<div class="entity-sub">${escapeHtml(ev.summary || "-")}</div>` +
+      `</div><div class="entity-sub">${fmtDate(ev.ts)}</div></div>`;
+  }
+
+  const win = document.createElement("section");
+  win.className = "window";
+  win.id = winId;
+  win.innerHTML = `
+    <div class="window-titlebar">
+      <i class="mdi ${iconCls} win-icon"></i>
+      <span class="win-title">${escapeHtml(entityItem.friendly_name || eid)}</span>
+      <div class="window-controls">
+        <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+        <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+        <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+      </div>
+    </div>
+    <div class="window-body device-detail-body">
+      <div class="device-header">
+        <i class="mdi ${iconCls} dev-icon"></i>
+        <div class="dev-info">
+          <div class="dev-name">${escapeHtml(entityItem.friendly_name || eid)}</div>
+          <div class="dev-id">${escapeHtml(eid)}${entityItem.lqi != null ? " \u00B7 LQI: " + entityItem.lqi : ""}</div>
+        </div>
+      </div>
+      <div class="list" style="flex:1;min-height:0">${entitiesHtml || '<div class="row"><div class="entity-sub">No related entities</div></div>'}</div>
+      <div style="font-size:12px;color:var(--text-sec);margin-top:4px">Activity Log</div>
+      <div class="list" style="flex:1;min-height:0;max-height:150px">${logHtml || '<div class="row"><div class="entity-sub">No activity recorded</div></div>'}</div>
+    </div>
+    <div class="resize-handle"></div>`;
+
+  $("desktop").appendChild(win);
+
+  const offset = state.deviceWinCount * 24;
+  WM.defaults[winId] = { w: 500, h: 460, x: 180 + offset, y: 50 + offset };
+  win.style.width = "500px";
+  win.style.height = "460px";
+  win.style.left = (180 + offset) + "px";
+  win.style.top = (50 + offset) + "px";
+  WM._makeDraggable(win);
+  WM._makeResizable(win);
+
+  win.querySelector(".win-ctrl.close").addEventListener("click", () => {
+    WM.close(winId);
+    setTimeout(() => { win.remove(); delete WM.defaults[winId]; }, 200);
+  });
+  win.querySelector(".win-ctrl.minimize").addEventListener("click", () => WM.close(winId));
+  win.querySelector(".win-ctrl.maximize").addEventListener("click", () => WM.toggleMax(winId));
+  win.addEventListener("mousedown", () => WM.focus(winId));
+
+  WM.open(winId);
+}
+
+/* ========================================================
+   NETWORK MAP (Canvas with zoom/pan)
+   ======================================================== */
+function groupDevicesForMap(zhaItems) {
+  const map = {};
+  for (const e of zhaItems) {
+    const parts = e.entity_id.split(".", 2);
+    if (parts.length < 2) continue;
+    const namePart = parts[1];
+    let deviceKey = namePart;
+    const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
+      "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
+      "_contact", "_vibration", "_rssi", "_lqi", "_linkquality"];
+    for (const sfx of suffixes) {
+      if (namePart.endsWith(sfx)) { deviceKey = namePart.slice(0, -sfx.length); break; }
+    }
+    if (!map[deviceKey]) {
+      map[deviceKey] = { id: deviceKey, name: e.friendly_name || deviceKey, lqi: e.lqi, entities: [] };
+    }
+    map[deviceKey].entities.push(e.entity_id);
+    if (e.lqi != null && (map[deviceKey].lqi == null || e.lqi > map[deviceKey].lqi)) {
+      map[deviceKey].lqi = e.lqi;
+    }
+  }
+  return Object.values(map);
+}
+
+function renderNetworkMap() {
+  const canvas = $("netmap-canvas");
+  if (!canvas || canvas.offsetParent === null) return;
+  syncCanvas(canvas);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  if (w === 0 || h === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  const nm = state.netMap;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#111122";
+  ctx.fillRect(0, 0, w, h);
+
+  /* Radial grid */
+  ctx.save();
+  ctx.translate(w / 2 + nm.panX * dpr, h / 2 + nm.panY * dpr);
+  ctx.scale(nm.zoom, nm.zoom);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 1;
+  for (let r = 1; r <= 4; r++) {
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 80 * dpr, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const devices = groupDevicesForMap(state.zhaItems);
+  if (!devices.length) {
+    ctx.restore();
+    ctx.fillStyle = "#ffffff61";
+    ctx.font = `${13 * dpr}px Segoe UI`;
+    ctx.textAlign = "left";
+    ctx.fillText("No ZHA devices found", 20 * dpr, 30 * dpr);
+    return;
+  }
+
+  /* Coordinator node */
+  ctx.fillStyle = "#60cdff";
+  ctx.beginPath();
+  ctx.arc(0, 0, 14 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = `bold ${11 * dpr}px Segoe UI`;
+  ctx.textAlign = "center";
+  ctx.fillText("Coordinator", 0, -22 * dpr);
+
+  /* Devices arranged radially */
+  const count = devices.length;
+  const angleStep = (2 * Math.PI) / Math.max(count, 1);
+  devices.forEach((dev, i) => {
+    const lqi = dev.lqi ?? 128;
+    const radius = (60 + (255 - Math.min(lqi, 255)) * 0.86) * dpr;
+    const angle = i * angleStep - Math.PI / 2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+
+    /* Connection line */
+    const lineColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
+    ctx.globalAlpha = 0.4;
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = (lqi > 180 ? 2 : 1.2) * dpr;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    /* LQI label */
+    if (dev.lqi != null) {
+      ctx.fillStyle = lineColor;
+      ctx.font = `${9 * dpr}px Segoe UI`;
+      ctx.textAlign = "center";
+      ctx.fillText(String(lqi), x * 0.5, y * 0.5 - 5 * dpr);
+    }
+
+    /* Device node */
+    ctx.fillStyle = lineColor;
+    ctx.beginPath();
+    ctx.arc(x, y, 8 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+
+    /* Device label */
+    ctx.fillStyle = "#ffffffde";
+    ctx.font = `${10 * dpr}px Segoe UI`;
+    ctx.textAlign = "center";
+    ctx.fillText((dev.name || dev.id).slice(0, 20), x, y + 18 * dpr);
+  });
+
+  ctx.restore();
+}
+
+function initNetworkMap() {
+  const canvas = $("netmap-canvas");
+  if (!canvas) return;
+  const nm = state.netMap;
+
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    nm.zoom = Math.max(0.3, Math.min(5, nm.zoom * factor));
+    renderNetworkMap();
+  }, { passive: false });
+
+  let dragging = false, sx = 0, sy = 0, spx = 0, spy = 0;
+  canvas.addEventListener("mousedown", (e) => {
+    dragging = true;
+    sx = e.clientX; sy = e.clientY;
+    spx = nm.panX; spy = nm.panY;
+    canvas.style.cursor = "grabbing";
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    nm.panX = spx + (e.clientX - sx);
+    nm.panY = spy + (e.clientY - sy);
+    renderNetworkMap();
+  });
+  document.addEventListener("mouseup", () => {
+    if (dragging) { dragging = false; canvas.style.cursor = "grab"; }
+  });
+}
+
+/* ========================================================
+   CONTEXT MENU
+   ======================================================== */
+function initContextMenu() {
+  const menu = $("ctx-menu");
+  if (!menu) return;
+
+  $("desktop").addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".window")) return;
+    e.preventDefault();
+
+    const clickedFolder = e.target.closest(".desktop-folder");
+    menu.innerHTML = "";
+
+    if (clickedFolder) {
+      const fid = clickedFolder.dataset.folderId;
+      menu.innerHTML =
+        `<div class="ctx-item" data-action="folder-open" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-folder-open"></i> Open</div>` +
+        `<div class="ctx-item" data-action="folder-props" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-cog"></i> Properties</div>` +
+        `<div class="ctx-divider"></div>` +
+        `<div class="ctx-item" data-action="folder-delete" data-fid="${escapeHtml(fid)}"><i class="mdi mdi-delete"></i> Delete</div>`;
+    } else {
+      menu.innerHTML =
+        `<div class="ctx-item" data-action="new-folder"><i class="mdi mdi-folder-plus"></i> New Folder</div>` +
+        `<div class="ctx-divider"></div>` +
+        `<div class="ctx-item" data-action="refresh"><i class="mdi mdi-refresh"></i> Refresh</div>`;
+    }
+
+    menu.style.left = e.clientX + "px";
+    menu.style.top = e.clientY + "px";
+    menu.classList.add("open");
+
+    menu.querySelectorAll(".ctx-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        const action = item.dataset.action;
+        const fid = item.dataset.fid;
+        menu.classList.remove("open");
+        if (action === "new-folder") createFolder();
+        else if (action === "refresh") load();
+        else if (action === "folder-open") openFolderWindow(fid);
+        else if (action === "folder-props") openFolderDialog(fid);
+        else if (action === "folder-delete") { deleteFolder(fid); }
+      }, { once: true });
+    });
+  });
+
+  document.addEventListener("click", () => menu.classList.remove("open"));
+}
+
+/* ========================================================
+   DESKTOP FOLDERS (localStorage)
+   ======================================================== */
+const FOLDER_ICONS = [
+  "mdi-folder", "mdi-folder-star", "mdi-home", "mdi-lightbulb",
+  "mdi-thermometer", "mdi-water-percent", "mdi-power-plug",
+  "mdi-toggle-switch", "mdi-motion-sensor", "mdi-door",
+  "mdi-window-open", "mdi-garage", "mdi-sofa", "mdi-bed",
+  "mdi-silverware-fork-knife", "mdi-shower", "mdi-car",
+  "mdi-tree", "mdi-cctv", "mdi-speaker", "mdi-desk-lamp",
+  "mdi-fan", "mdi-fire", "mdi-snowflake",
+];
+
+function saveFolders() {
+  localStorage.setItem("zha_desktop_folders", JSON.stringify(state.folders));
+}
+
+function createFolder() {
+  const id = "folder-" + Date.now();
+  state.folders.push({ id, name: "New Folder", icon: "mdi-folder", entities: [] });
+  saveFolders();
+  renderDesktopFolders();
+  openFolderDialog(id);
+}
+
+function deleteFolder(folderId) {
+  state.folders = state.folders.filter(f => f.id !== folderId);
+  saveFolders();
+  renderDesktopFolders();
+}
+
+function renderDesktopFolders() {
+  document.querySelectorAll(".desktop-folder").forEach(el => el.remove());
+  const container = $("desktop")?.querySelector(".desktop-icons");
+  if (!container) return;
+
+  for (const folder of state.folders) {
+    const btn = document.createElement("button");
+    btn.className = "desktop-folder";
+    btn.dataset.folderId = folder.id;
+    btn.innerHTML =
+      `<div class="shortcut-icon"><i class="mdi ${folder.icon || "mdi-folder"}"></i></div>` +
+      `<span>${escapeHtml(folder.name)}</span>`;
+    btn.addEventListener("dblclick", () => openFolderWindow(folder.id));
+    container.appendChild(btn);
+  }
+}
+
+function openFolderDialog(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const dialog = $("folder-dialog");
+  if (!dialog) return;
+
+  $("folder-name-input").value = folder.name;
+
+  /* Icon picker */
+  const picker = $("icon-picker");
+  picker.innerHTML = "";
+  for (const ic of FOLDER_ICONS) {
+    const item = document.createElement("div");
+    item.className = `icon-picker-item${folder.icon === ic ? " selected" : ""}`;
+    item.innerHTML = `<i class="mdi ${ic}"></i>`;
+    item.addEventListener("click", () => {
+      picker.querySelectorAll(".icon-picker-item").forEach(el => el.classList.remove("selected"));
+      item.classList.add("selected");
+    });
+    picker.appendChild(item);
+  }
+
+  renderFolderEntities(folder);
+  dialog.classList.add("open");
+
+  $("folder-save-btn").onclick = () => {
+    folder.name = $("folder-name-input").value.trim() || "Folder";
+    const sel = picker.querySelector(".icon-picker-item.selected .mdi");
+    if (sel) folder.icon = sel.className.replace("mdi ", "").trim();
+    saveFolders();
+    renderDesktopFolders();
+    dialog.classList.remove("open");
+  };
+  $("folder-cancel-btn").onclick = () => dialog.classList.remove("open");
+  $("folder-delete-btn").onclick = () => {
+    deleteFolder(folderId);
+    dialog.classList.remove("open");
+  };
+  $("folder-add-entity-btn").onclick = () => {
+    const input = $("folder-entity-search");
+    const val = input?.value?.trim();
+    if (val && !folder.entities.includes(val)) {
+      folder.entities.push(val);
+      saveFolders();
+      renderFolderEntities(folder);
+      input.value = "";
+    }
+  };
+}
+
+function renderFolderEntities(folder) {
+  const host = $("folder-entity-list");
+  if (!host) return;
+  host.innerHTML = "";
+  for (const eid of folder.entities) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const title = document.createElement("div");
+    title.className = "entity-sub";
+    title.textContent = eid;
+    row.appendChild(title);
+    row.appendChild(makeBtn("\u00D7", () => {
+      folder.entities = folder.entities.filter(e => e !== eid);
+      saveFolders();
+      renderFolderEntities(folder);
+    }));
+    host.appendChild(row);
+  }
+}
+
+function openFolderWindow(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const winId = `folder-win-${folderId}`;
+  if ($(winId)) { WM.open(winId); return; }
+
+  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+  const win = document.createElement("section");
+  win.className = "window";
+  win.id = winId;
+
+  let entitiesHtml = "";
+  for (const eid of folder.entities) {
+    const entity = allEntities.find(e => e.entity_id === eid);
+    if (entity) {
+      const ic = entity.icon?.startsWith("mdi:") ? entity.icon.replace(":", "-") : "mdi-zigbee";
+      const lqiStr = entity.lqi != null ? ` \u00B7 LQI: ${entity.lqi}` : "";
+      entitiesHtml += `<div class="row"><div>` +
+        `<div class="entity-title"><i class="mdi ${ic}"></i> ${escapeHtml(entity.friendly_name || eid)}</div>` +
+        `<div class="entity-sub">${escapeHtml(eid)}${lqiStr}</div>` +
+        `</div><span class="badge ${entity.state === "on" ? "on" : entity.state === "off" ? "off" : "mid"}">${escapeHtml(entity.state || "-")}</span></div>`;
+    } else {
+      entitiesHtml += `<div class="row"><div class="entity-sub">${escapeHtml(eid)} (not found)</div></div>`;
+    }
+  }
+
+  win.innerHTML = `
+    <div class="window-titlebar">
+      <i class="mdi ${folder.icon || "mdi-folder"} win-icon"></i>
+      <span class="win-title">${escapeHtml(folder.name)}</span>
+      <div class="window-controls">
+        <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+        <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+        <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+      </div>
+    </div>
+    <div class="window-body">
+      <div class="list" style="flex:1;min-height:0">${entitiesHtml || '<div class="row"><div class="entity-sub">Empty folder. Right-click \u2192 Properties to add entities.</div></div>'}</div>
+    </div>
+    <div class="resize-handle"></div>`;
+
+  $("desktop").appendChild(win);
+  const offset = 20 + (state.deviceWinCount % 5) * 24;
+  WM.defaults[winId] = { w: 480, h: 380, x: 200 + offset, y: 60 + offset };
+  win.style.width = "480px";
+  win.style.height = "380px";
+  win.style.left = (200 + offset) + "px";
+  win.style.top = (60 + offset) + "px";
+  WM._makeDraggable(win);
+  WM._makeResizable(win);
+
+  win.querySelector(".win-ctrl.close").addEventListener("click", () => {
+    WM.close(winId);
+    setTimeout(() => { win.remove(); delete WM.defaults[winId]; }, 200);
+  });
+  win.querySelector(".win-ctrl.minimize").addEventListener("click", () => WM.close(winId));
+  win.querySelector(".win-ctrl.maximize").addEventListener("click", () => WM.toggleMax(winId));
+  win.addEventListener("mousedown", () => WM.focus(winId));
+
+  WM.open(winId);
+}
+
 /* ---------- Helpers ---------- */
 function makeBadge(stateText) {
   const b = document.createElement("span");
@@ -1002,6 +1563,7 @@ async function load() {
     state.notifyEntities = d.notify_entities || [];
     state.telemetrySpikes = d.telemetry?.spikes || [];
     state.telemetryEvents = d.telemetry?.events || [];
+    state.commandLog = d.command_log || [];
 
     setSummary(d.summary || {});
     renderDelayChart(d.delay_samples || []);
@@ -1010,21 +1572,21 @@ async function load() {
     renderMirrorRules(d.mirror_rules || []);
     renderSensorRules(d.sensor_rules || []);
     renderTelemetryChart(state.telemetrySpikes);
-    renderTelemetryLog(state.telemetryEvents);
+    renderTelemetryLog(state.telemetryEvents, state.commandLog);
     renderBatteryList();
     renderBatteryChart(state.batteryItems);
     renderBatteryAlerts(state.batteryAlerts);
+    renderNetworkMap();
 
     if (d.runtime?.last_error) {
       setStatus(`Error: ${d.runtime.last_error}`, true);
     } else {
-      setStatus(
-        `OK \u00B7 zigbee: ${d.summary?.zigbee_entities ?? 0} \u00B7 switches: ${d.summary?.switches_total ?? 0}`,
-        false
-      );
+      const errs = d.summary?.command_errors ?? 0;
+      const statusText = `OK \u00B7 zigbee: ${d.summary?.zigbee_entities ?? 0} \u00B7 switches: ${d.summary?.switches_total ?? 0}${errs > 0 ? " \u00B7 errors: " + errs : ""}`;
+      setStatus(statusText, errs > 0);
     }
 
-    setText("updated-at", new Date().toLocaleTimeString("en-US"));
+    setText("updated-at", fmtNow());
   } catch (e) {
     setStatus(`Error: ${e.message}`, true);
   } finally {
@@ -1094,7 +1656,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* Clock */
   tickClock();
-  setInterval(tickClock, 15000);
+  setInterval(tickClock, 1000);
+
+  /* Desktop context menu */
+  initContextMenu();
+
+  /* Desktop folders */
+  renderDesktopFolders();
+
+  /* Folder dialog autocomplete */
+  initAutocomplete("folder-entity-search", "folder-entity-search-list", () =>
+    [...state.zhaItems, ...state.switchItems, ...state.sensorItems]
+      .map((e) => e.entity_id)
+  );
+
+  /* Network map mouse events */
+  initNetworkMap();
 
   /* Auto-open KPI window on start */
   WM.open("kpi-win");

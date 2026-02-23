@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.8.0] - 2026-02-23
+
+### Added
+- Command tracking with sent/confirmed/timeout lifecycle in telemetry log.
+- KPI error count and success rate cards with color-coded values.
+- Desktop right-click context menu with folder creation and refresh.
+- Desktop folders with custom icons, entity search/assignment, localStorage persistence.
+- Device detail window on entity double-click showing related entities and activity log.
+- Network Map window with canvas-based ZHA topology, LQI-colored connections, zoom/pan.
+
+### Changed
+- All dates and times standardized to YYYY-MM-DD HH:MM:SS format.
+- Clock shows seconds, updates every second.
+- LQI displayed only when available (hidden when null).
+- Telemetry log merges WS events + command log with status icons.
+- Backend: command_log deque, 10-second timeout detection, command_errors/success_rate in summary.
+
 ## [0.7.0] - 2026-02-23
 
 ### Added

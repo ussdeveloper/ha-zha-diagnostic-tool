@@ -16,6 +16,8 @@ MOCK_DASHBOARD = json.dumps({
         "delay_p95_ms": 87,
         "delay_max_ms": 134,
         "pending_commands": 0,
+        "command_errors": 1,
+        "command_success_rate": 87.5,
     },
     "zigbee_devices": [
         {"entity_id": "light.living_room", "friendly_name": "Living Room LED", "state": "on", "icon": "mdi:lightbulb", "lqi": 210, "last_updated": "12:30:01"},
@@ -52,6 +54,14 @@ MOCK_DASHBOARD = json.dumps({
         {"entity_id": "notify.mobile_app_phone", "friendly_name": "Phone"},
         {"entity_id": "notify.mobile_app_tablet", "friendly_name": "Tablet"},
         {"entity_id": "notify.pushover", "friendly_name": "Pushover"},
+    ],
+    "command_log": [
+        {"entity_id": "switch.plug_kitchen", "action": "turn_on", "status": "sent", "delay_ms": None, "ts": "2026-02-23T12:29:55", "source": "ui"},
+        {"entity_id": "switch.plug_kitchen", "action": "on", "status": "confirmed", "delay_ms": 42.5, "ts": "2026-02-23T12:29:55", "source": "ui"},
+        {"entity_id": "switch.plug_office", "action": "turn_off", "status": "sent", "delay_ms": None, "ts": "2026-02-23T12:28:30", "source": "ui"},
+        {"entity_id": "switch.plug_office", "action": "off", "status": "confirmed", "delay_ms": 38.1, "ts": "2026-02-23T12:28:30", "source": "ui"},
+        {"entity_id": "switch.plug_garage", "action": "turn_on", "status": "sent", "delay_ms": None, "ts": "2026-02-23T12:27:00", "source": "mirror"},
+        {"entity_id": "switch.plug_garage", "action": "on", "status": "timeout", "delay_ms": 10023.4, "ts": "2026-02-23T12:27:10", "source": "mirror"},
     ],
     "delay_samples": [
         {"delay_ms": 30}, {"delay_ms": 45}, {"delay_ms": 38}, {"delay_ms": 52},

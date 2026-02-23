@@ -1,5 +1,24 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.7.0] - 2026-02-23
+
+### Added
+- Command tracking: telemetry log now shows sent/confirmed/timeout command status with icons.
+- KPI cards: Errors count and Success% with color-coded highlighting (red/yellow/green).
+- Desktop context menu: right-click to create folders, refresh data, or manage folders.
+- Desktop folder system: create folders, assign custom icons, add entities, open as windows.
+- Device detail window: double-click any ZHA entity to view all related entities and activity log.
+- Network Map window: canvas-based ZHA device topology with LQI-colored connections, zoom (wheel), pan (drag).
+- Network Map desktop icon and taskbar button.
+
+### Changed
+- All timestamps use YYYY-MM-DD HH:MM:SS format everywhere (clock, updated-at, telemetry, etc.).
+- Clock now shows seconds and updates every second.
+- LQI only displayed when data is available (no more "LQI: -").
+- Telemetry log merges events and command log, sorted newest first with status icons.
+- Backend tracks command lifecycle: sent → confirmed/timeout with 10-second timeout detection.
+- Dashboard payload now includes command_log, command_errors, and command_success_rate.
+
 ## [0.6.0] - 2026-02-23
 
 ### Added

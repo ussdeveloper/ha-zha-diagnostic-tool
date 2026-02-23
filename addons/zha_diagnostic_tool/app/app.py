@@ -65,6 +65,7 @@ class DiagnosticRuntime:
             "other": 0,
         }
         self.pending: dict[str, PendingSwitchCommand] = {}
+        self.command_log: deque[dict[str, Any]] = deque(maxlen=200)
         self.recent_mirror_targets: dict[str, float] = {}
         self.recent_sensor_actions: dict[str, float] = {}
 
@@ -124,11 +125,30 @@ class DiagnosticRuntime:
         while True:
             try:
                 await self.refresh_states()
+                self._check_command_timeouts()
                 self.last_error = None
             except Exception as exc:  # noqa: BLE001
                 self.last_error = str(exc)
                 LOGGER.warning("State poll error: %s", exc)
             await asyncio.sleep(self.poll_interval_seconds)
+
+    def _check_command_timeouts(self) -> None:
+        now = self._now_ms()
+        timeout_ms = 10_000
+        expired = [
+            eid for eid, cmd in self.pending.items()
+            if (now - cmd.issued_at) > timeout_ms
+        ]
+        for eid in expired:
+            cmd = self.pending.pop(eid)
+            self.command_log.append({
+                "entity_id": eid,
+                "action": cmd.desired_state or "toggle",
+                "status": "timeout",
+                "delay_ms": round(now - cmd.issued_at, 2),
+                "ts": datetime.now(tz=UTC).isoformat(),
+                "source": cmd.source,
+            })
 
     async def refresh_states(self) -> None:
         if not self.session:
@@ -408,6 +428,14 @@ class DiagnosticRuntime:
                     "source": pending.source,
                 }
             )
+            self.command_log.append({
+                "entity_id": entity_id,
+                "action": new_state,
+                "status": "confirmed",
+                "delay_ms": round(delay, 2),
+                "ts": datetime.now(tz=UTC).isoformat(),
+                "source": pending.source,
+            })
             self.pending.pop(entity_id, None)
 
         if new_state != old_state:
@@ -518,6 +546,14 @@ class DiagnosticRuntime:
             issued_at=self._now_ms(),
             source=source,
         )
+        self.command_log.append({
+            "entity_id": entity_id,
+            "action": action,
+            "status": "sent",
+            "delay_ms": None,
+            "ts": datetime.now(tz=UTC).isoformat(),
+            "source": source,
+        })
         return True
 
     def dashboard_payload(self) -> dict[str, Any]:
@@ -546,6 +582,8 @@ class DiagnosticRuntime:
                 "sensor_rules": len(self.sensor_rules),
                 "mirror_rules": len(self.mirror_rules),
                 "pending_commands": len(self.pending),
+                "command_errors": sum(1 for c in self.command_log if c.get("status") == "timeout"),
+                "command_success_rate": self._command_success_rate(),
                 "delay_avg_ms": delay_avg,
                 "delay_p95_ms": p95,
                 "delay_max_ms": delay_max,
@@ -563,7 +601,15 @@ class DiagnosticRuntime:
             "battery_devices": self.battery_entities,
             "battery_alerts": self.battery_alerts,
             "notify_entities": self.notify_entities,
+            "command_log": list(self.command_log)[-100:],
         }
+
+    def _command_success_rate(self) -> float | None:
+        finished = [c for c in self.command_log if c.get("status") in ("confirmed", "timeout")]
+        if not finished:
+            return None
+        confirmed = sum(1 for c in finished if c["status"] == "confirmed")
+        return round(confirmed / len(finished) * 100, 1)
 
     @staticmethod
     def _now_ms() -> float:

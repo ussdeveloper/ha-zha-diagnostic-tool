@@ -684,6 +684,180 @@ button.accent:hover { background: var(--accent-hover); }
 
 .battery-toolbar input:first-child { flex: 1; min-width: 120px; }
 
+/* ===== KPI Error Highlighting ===== */
+.kpi.kpi-err strong { color: var(--bad); }
+.kpi strong.val-warn { color: var(--warn); }
+.kpi strong.val-bad { color: var(--bad); }
+.kpi strong.val-good { color: var(--good); }
+
+/* ===== Context Menu ===== */
+.context-menu {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  background: var(--mica-solid);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-win);
+  padding: 4px;
+  backdrop-filter: blur(20px);
+}
+.context-menu.open { display: block; }
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
+}
+.ctx-item:hover { background: rgba(255,255,255,0.08); }
+.ctx-item .mdi { font-size: 16px; color: var(--accent); }
+.ctx-divider { height: 1px; background: var(--divider); margin: 4px 8px; }
+
+/* ===== Dialog Overlay ===== */
+.dialog-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 10001;
+  justify-content: center;
+  align-items: center;
+}
+.dialog-overlay.open { display: flex; }
+.dialog {
+  background: var(--mica-solid);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-focus);
+  padding: 20px;
+  min-width: 380px;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dialog-title { font-size: 16px; font-weight: 600; color: var(--text); }
+.dialog-label { font-size: 12px; color: var(--text-sec); margin-top: 4px; }
+.dialog-actions { display: flex; gap: 8px; margin-top: 8px; }
+button.danger { background: #c42b1c; color: #fff; border-color: transparent; }
+button.danger:hover { background: #a62115; }
+
+/* ===== Icon Picker ===== */
+.icon-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.icon-picker-item {
+  width: 32px; height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--text-sec);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.icon-picker-item:hover { background: rgba(255,255,255,0.06); }
+.icon-picker-item.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(96,205,255,0.1);
+}
+
+/* ===== Folder Entity Add ===== */
+.folder-entity-add { display: flex; gap: 6px; align-items: flex-start; }
+
+/* ===== Desktop Folder Icon ===== */
+.desktop-folder {
+  width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font);
+  transition: background 0.12s, border-color 0.12s;
+}
+.desktop-folder:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+}
+.desktop-folder .shortcut-icon {
+  width: 48px; height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  color: #fce100;
+}
+.desktop-folder span {
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.25;
+  word-break: break-word;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+  color: #fff;
+}
+
+/* ===== Network Map ===== */
+.netmap-body { padding: 0 !important; overflow: hidden; }
+#netmap-canvas {
+  width: 100%; height: 100%;
+  display: block;
+  background: #111122;
+  cursor: grab;
+}
+#netmap-canvas:active { cursor: grabbing; }
+
+/* ===== Device Detail Window ===== */
+.device-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+.device-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.device-header .dev-icon { font-size: 32px; color: var(--accent); }
+.device-header .dev-info { flex: 1; }
+.device-header .dev-name { font-size: 15px; font-weight: 600; }
+.device-header .dev-id { font-size: 11px; color: var(--text-tert); }
+.device-header button {
+  padding: 6px;
+  font-size: 18px;
+  background: transparent;
+  border: 1px solid var(--border-hi);
+}
+
+/* ===== Telemetry command status ===== */
+.row.cmd-confirmed .entity-title .mdi { color: var(--good); }
+.row.cmd-timeout .entity-title .mdi { color: var(--bad); }
+.row.cmd-sent .entity-title .mdi { color: var(--warn); }
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .sensor-form { grid-template-columns: 1fr 1fr 1fr; }
