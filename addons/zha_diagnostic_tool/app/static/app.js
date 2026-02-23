@@ -10,6 +10,15 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const safeEl = (id) => $(id);
 
+function syncCanvasSize(canvas) {
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+  if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+}
+
 function setText(id, value) {
   const el = safeEl(id);
   if (!el) return;
@@ -63,6 +72,7 @@ function setSummary(summary) {
 function renderDelayChart(samples) {
   const canvas = $("delay-chart");
   if (!canvas) return;
+  syncCanvasSize(canvas);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -119,6 +129,7 @@ function renderDelayChart(samples) {
 function renderTelemetryChart(spikes) {
   const canvas = safeEl("telemetry-chart");
   if (!canvas) return;
+  syncCanvasSize(canvas);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -268,7 +279,10 @@ function renderSwitchList() {
 
     const right = document.createElement("div");
     right.className = "right-actions";
-    right.appendChild(rowRightActions(item.entity_id, item.state, true));
+
+    const badge = document.createElement("span");
+    badge.className = `badge ${item.state === "on" ? "on" : item.state === "off" ? "off" : "mid"}`;
+    badge.textContent = item.state ?? "-";
 
     const onBtn = document.createElement("button");
     onBtn.textContent = "ON";
@@ -278,8 +292,15 @@ function renderSwitchList() {
     offBtn.textContent = "OFF";
     offBtn.onclick = () => switchAction(item.entity_id, "turn_off");
 
+    const toggleBtn = document.createElement("button");
+    toggleBtn.innerHTML = '<i class="mdi mdi-toggle-switch"></i>';
+    toggleBtn.title = "Toggle";
+    toggleBtn.onclick = () => switchAction(item.entity_id, "toggle");
+
+    right.appendChild(badge);
     right.appendChild(onBtn);
     right.appendChild(offBtn);
+    right.appendChild(toggleBtn);
 
     row.appendChild(left);
     row.appendChild(right);
