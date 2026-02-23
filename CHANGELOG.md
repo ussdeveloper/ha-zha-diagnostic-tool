@@ -1,8 +1,23 @@
 # Changelog
 
-Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
+All notable changes to this project are documented in this file.
 
-Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
+Format inspired by Keep a Changelog, versioning follows SemVer.
+
+## [0.7.0] - 2026-02-23
+
+### Added
+- Battery Monitor window with weakest-first list, drain chart, and color-coded badges.
+- Battery alert system with threshold config and phone/notify entity notifications.
+- Autocomplete searchable dropdowns for all entity selection fields.
+- Window resize handles on all floating desktop windows.
+- Notify entity detection from Home Assistant states.
+
+### Changed
+- Full English localization: UI labels, backend errors, comments, docs, changelogs.
+- Start button icon changed from Windows to ZHA/Zigbee.
+- Entity selection migrated from `<select>` to autocomplete inputs.
+- Backend: battery device collection, battery alerts CRUD, notify entity collection.
 
 ## [0.6.1] - 2026-02-23
 

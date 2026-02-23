@@ -22,6 +22,7 @@ SUPERVISOR_WS = "ws://supervisor/core/websocket"
 OPTIONS_PATH = Path("/data/options.json")
 MIRROR_RULES_PATH = Path("/config/zha_diagnostic_mirror_rules.json")
 SENSOR_RULES_PATH = Path("/config/zha_diagnostic_sensor_rules.json")
+BATTERY_ALERTS_PATH = Path("/config/zha_diagnostic_battery_alerts.json")
 STATIC_DIR = Path(__file__).parent / "static"
 
 ZIGBEE_KEYWORDS = ("zigbee", "zha", "deconz", "zigbee2mqtt", "bellows", "ezsp")
@@ -49,6 +50,8 @@ class DiagnosticRuntime:
         self.zigbee_entities: list[dict[str, Any]] = []
         self.switch_entities: list[dict[str, Any]] = []
         self.sensor_entities: list[dict[str, Any]] = []
+        self.battery_entities: list[dict[str, Any]] = []
+        self.notify_entities: list[dict[str, Any]] = []
 
         self.delay_samples: deque[dict[str, Any]] = deque(maxlen=self.max_delay_samples)
         self.telemetry_log: deque[dict[str, Any]] = deque(maxlen=500)
@@ -67,6 +70,7 @@ class DiagnosticRuntime:
 
         self.mirror_rules: list[dict[str, Any]] = self._load_json(MIRROR_RULES_PATH, default=[])
         self.sensor_rules: list[dict[str, Any]] = self._load_json(SENSOR_RULES_PATH, default=[])
+        self.battery_alerts: list[dict[str, Any]] = self._load_json(BATTERY_ALERTS_PATH, default=[])
 
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
@@ -101,7 +105,7 @@ class DiagnosticRuntime:
 
     async def start(self) -> None:
         if not self.token:
-            self.last_error = "Brak SUPERVISOR_TOKEN (sprawdź homeassistant_api/hassio_api w config.yaml)"
+            self.last_error = "Missing SUPERVISOR_TOKEN (check homeassistant_api/hassio_api in config.yaml)"
         self.session = ClientSession(headers=self.auth_headers)
         self._poll_task = asyncio.create_task(self._poll_loop(), name="poll_states")
         self._ws_task = asyncio.create_task(self._ws_loop(), name="ha_events")
@@ -143,6 +147,8 @@ class DiagnosticRuntime:
         zigbee_entities: list[dict[str, Any]] = []
         switch_entities: list[dict[str, Any]] = []
         sensor_entities: list[dict[str, Any]] = []
+        battery_entities: list[dict[str, Any]] = []
+        notify_entities: list[dict[str, Any]] = []
 
         for item in payload:
             entity_id = item.get("entity_id")
@@ -190,10 +196,35 @@ class DiagnosticRuntime:
                     }
                 )
 
+            # Battery entities (device_class=battery or battery attribute)
+            battery_level = self._extract_battery(item)
+            if battery_level is not None:
+                battery_entities.append(
+                    {
+                        "entity_id": entity_id,
+                        "state": state_value,
+                        "friendly_name": attrs.get("friendly_name", entity_id),
+                        "battery": battery_level,
+                        "last_updated": item.get("last_updated"),
+                        "battery_history": [],
+                    }
+                )
+
+            # Notify entities
+            if entity_id.startswith("notify."):
+                notify_entities.append(
+                    {
+                        "entity_id": entity_id,
+                        "friendly_name": attrs.get("friendly_name", entity_id),
+                    }
+                )
+
         self.states = states
         self.zigbee_entities = sorted(zigbee_entities, key=lambda e: e["entity_id"])
         self.switch_entities = sorted(switch_entities, key=lambda e: e["entity_id"])
         self.sensor_entities = sorted(sensor_entities, key=lambda e: e["entity_id"])
+        self.battery_entities = sorted(battery_entities, key=lambda e: e.get("battery") or 999)
+        self.notify_entities = sorted(notify_entities, key=lambda e: e["entity_id"])
         self.last_success_utc = datetime.now(tz=UTC).isoformat()
 
         await self._evaluate_sensor_rules()
@@ -529,6 +560,9 @@ class DiagnosticRuntime:
             "zigbee_devices": self.zigbee_entities,
             "switches": self.switch_entities,
             "sensors": self.sensor_entities,
+            "battery_devices": self.battery_entities,
+            "battery_alerts": self.battery_alerts,
+            "notify_entities": self.notify_entities,
         }
 
     @staticmethod
@@ -554,6 +588,30 @@ class DiagnosticRuntime:
             value = attrs.get(key)
             if isinstance(value, (int, float)):
                 return int(value)
+        return None
+
+    @staticmethod
+    def _extract_battery(item: dict[str, Any]) -> int | None:
+        """Extract battery level from entity state or attributes."""
+        attrs = item.get("attributes") or {}
+        entity_id = str(item.get("entity_id", ""))
+        device_class = attrs.get("device_class", "")
+
+        # sensor with device_class battery
+        if device_class == "battery" and entity_id.startswith("sensor."):
+            try:
+                val = item.get("state")
+                if val not in {None, "unknown", "unavailable"}:
+                    return int(float(val))
+            except (TypeError, ValueError):
+                pass
+
+        # battery attribute on any entity
+        for key in ("battery", "battery_level"):
+            val = attrs.get(key)
+            if isinstance(val, (int, float)):
+                return int(val)
+
         return None
 
     @staticmethod
@@ -612,9 +670,9 @@ async def create_mirror_rule(request: web.Request) -> web.Response:
     bidirectional = bool(body.get("bidirectional", True))
 
     if not source.startswith("switch.") or not target.startswith("switch."):
-        return web.json_response({"error": "source i target muszą być switch.*"}, status=400)
+        return web.json_response({"error": "source and target must be switch.*"}, status=400)
     if source == target:
-        return web.json_response({"error": "source i target nie mogą być takie same"}, status=400)
+        return web.json_response({"error": "source and target cannot be the same"}, status=400)
 
     rule = {
         "id": f"{source}->{target}",
@@ -626,7 +684,7 @@ async def create_mirror_rule(request: web.Request) -> web.Response:
     }
 
     if any(str(item.get("id")) == rule["id"] for item in runtime.mirror_rules):
-        return web.json_response({"error": "Taka reguła już istnieje"}, status=409)
+        return web.json_response({"error": "Rule already exists"}, status=409)
 
     runtime.mirror_rules.append(rule)
     runtime._save_json(MIRROR_RULES_PATH, runtime.mirror_rules)
@@ -653,9 +711,9 @@ async def create_sensor_rule(request: web.Request) -> web.Response:
     switch_entity = str(body.get("switch_entity", "")).strip()
 
     if not sensor_entity.startswith("sensor."):
-        return web.json_response({"error": "sensor_entity musi być sensor.*"}, status=400)
+        return web.json_response({"error": "sensor_entity must be sensor.*"}, status=400)
     if not switch_entity.startswith("switch."):
-        return web.json_response({"error": "switch_entity musi być switch.*"}, status=400)
+        return web.json_response({"error": "switch_entity must be switch.*"}, status=400)
 
     rule = {
         "id": f"{sensor_entity}->{switch_entity}",
@@ -671,7 +729,7 @@ async def create_sensor_rule(request: web.Request) -> web.Response:
     }
 
     if any(str(item.get("id")) == rule["id"] for item in runtime.sensor_rules):
-        return web.json_response({"error": "Taka reguła już istnieje"}, status=409)
+        return web.json_response({"error": "Rule already exists"}, status=409)
 
     runtime.sensor_rules.append(rule)
     runtime._save_json(SENSOR_RULES_PATH, runtime.sensor_rules)
@@ -698,13 +756,53 @@ async def switch_action(request: web.Request) -> web.Response:
 
     ok = await runtime.call_switch_service(entity_id, action, source="ui")
     if not ok:
-        return web.json_response({"error": "Nie udało się wykonać akcji switch"}, status=500)
+        return web.json_response({"error": "Failed to execute switch action"}, status=500)
 
     return web.json_response({"ok": True})
 
 
 async def refresh_now(_: web.Request) -> web.Response:
     await runtime.refresh_states()
+    return web.json_response({"ok": True})
+
+
+# ---- Battery alerts CRUD ----
+
+async def get_battery_alerts(_: web.Request) -> web.Response:
+    return web.json_response({"items": runtime.battery_alerts})
+
+
+async def create_battery_alert(request: web.Request) -> web.Response:
+    body = await request.json()
+    threshold = int(body.get("threshold", 20))
+    notify_entity = str(body.get("notify_entity", "")).strip()
+
+    if not notify_entity:
+        return web.json_response({"error": "notify_entity is required"}, status=400)
+
+    alert = {
+        "id": f"bat-{threshold}-{notify_entity}",
+        "threshold": threshold,
+        "notify_entity": notify_entity,
+        "enabled": True,
+        "created_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+    if any(str(a.get("id")) == alert["id"] for a in runtime.battery_alerts):
+        return web.json_response({"error": "Alert already exists"}, status=409)
+
+    runtime.battery_alerts.append(alert)
+    runtime._save_json(BATTERY_ALERTS_PATH, runtime.battery_alerts)
+    return web.json_response(alert, status=201)
+
+
+async def delete_battery_alert(request: web.Request) -> web.Response:
+    alert_id = request.match_info.get("alert_id", "")
+    before = len(runtime.battery_alerts)
+    runtime.battery_alerts = [a for a in runtime.battery_alerts if str(a.get("id")) != alert_id]
+    if len(runtime.battery_alerts) == before:
+        return web.json_response({"error": "Alert not found"}, status=404)
+    runtime._save_json(BATTERY_ALERTS_PATH, runtime.battery_alerts)
     return web.json_response({"ok": True})
 
 
@@ -744,6 +842,10 @@ def create_app() -> web.Application:
 
     app.router.add_post("/api/switch-action", switch_action)
     app.router.add_post("/api/refresh", refresh_now)
+
+    app.router.add_get("/api/battery-alerts", get_battery_alerts)
+    app.router.add_post("/api/battery-alerts", create_battery_alert)
+    app.router.add_delete("/api/battery-alerts/{alert_id}", delete_battery_alert)
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

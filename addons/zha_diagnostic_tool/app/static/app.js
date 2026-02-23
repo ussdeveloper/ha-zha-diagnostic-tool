@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.5.0) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.6.0) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -7,6 +7,9 @@ const state = {
   zhaItems: [],
   switchItems: [],
   sensorItems: [],
+  batteryItems: [],
+  batteryAlerts: [],
+  notifyEntities: [],
   telemetrySpikes: [],
   telemetryEvents: [],
   refreshTimer: null,
@@ -61,7 +64,7 @@ function tickClock() {
   const now = new Date();
   const h = String(now.getHours()).padStart(2, "0");
   const m = String(now.getMinutes()).padStart(2, "0");
-  const d = now.toLocaleDateString("pl-PL", {
+  const d = now.toLocaleDateString("en-US", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -70,7 +73,100 @@ function tickClock() {
 }
 
 /* ========================================================
-   WINDOW MANAGER — open, close, focus, drag, maximize
+   AUTOCOMPLETE — reusable searchable dropdown
+   ======================================================== */
+function initAutocomplete(inputId, listId, getItems) {
+  const input = $(inputId);
+  const listEl = $(listId);
+  if (!input || !listEl) return;
+
+  let activeIdx = -1;
+
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    const items = getItems();
+    const filtered = q
+      ? items.filter((it) => it.toLowerCase().includes(q))
+      : items;
+
+    listEl.innerHTML = "";
+    activeIdx = -1;
+
+    if (!filtered.length) {
+      listEl.classList.remove("open");
+      return;
+    }
+
+    for (let i = 0; i < filtered.length && i < 80; i++) {
+      const div = document.createElement("div");
+      div.className = "autocomplete-item";
+      if (q) {
+        const idx = filtered[i].toLowerCase().indexOf(q);
+        const before = filtered[i].slice(0, idx);
+        const match = filtered[i].slice(idx, idx + q.length);
+        const after = filtered[i].slice(idx + q.length);
+        div.innerHTML =
+          escapeHtml(before) +
+          `<span class="ac-match">${escapeHtml(match)}</span>` +
+          escapeHtml(after);
+      } else {
+        div.textContent = filtered[i];
+      }
+      div.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        input.value = filtered[i];
+        listEl.classList.remove("open");
+      });
+      listEl.appendChild(div);
+    }
+    listEl.classList.add("open");
+  }
+
+  input.addEventListener("focus", render);
+  input.addEventListener("input", render);
+  input.addEventListener("blur", () => {
+    setTimeout(() => listEl.classList.remove("open"), 150);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    const items = listEl.querySelectorAll(".autocomplete-item");
+    if (!items.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      input.value = items[activeIdx].textContent;
+      listEl.classList.remove("open");
+      return;
+    } else if (e.key === "Escape") {
+      listEl.classList.remove("open");
+      return;
+    } else {
+      return;
+    }
+
+    items.forEach((it, i) =>
+      it.classList.toggle("active", i === activeIdx)
+    );
+    if (items[activeIdx]) {
+      items[activeIdx].scrollIntoView({ block: "nearest" });
+    }
+  });
+}
+
+function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* ========================================================
+   WINDOW MANAGER — open, close, focus, drag, maximize, resize
    ======================================================== */
 const WM = {
   zIndex: 100,
@@ -84,6 +180,7 @@ const WM = {
     "telemetry-win": { w: 680, h: 480, x: 250, y: 35  },
     "mirror-win":    { w: 580, h: 340, x: 290, y: 135 },
     "sensor-win":    { w: 620, h: 360, x: 330, y: 75  },
+    "battery-win":   { w: 720, h: 520, x: 160, y: 45  },
   },
 
   init() {
@@ -96,6 +193,7 @@ const WM = {
       win.style.left   = d.x + "px";
       win.style.top    = d.y + "px";
       this._makeDraggable(win);
+      this._makeResizable(win);
     }
 
     /* Close buttons */
@@ -106,7 +204,7 @@ const WM = {
       });
     });
 
-    /* Minimize buttons (same as close — hide window) */
+    /* Minimize buttons */
     document.querySelectorAll(".win-ctrl.minimize").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const win = e.target.closest(".window");
@@ -122,12 +220,12 @@ const WM = {
       });
     });
 
-    /* Click on window body → focus */
+    /* Click on window body -> focus */
     document.querySelectorAll(".window").forEach((win) => {
       win.addEventListener("mousedown", () => this.focus(win.id));
     });
 
-    /* Desktop shortcut icons → open window */
+    /* Desktop shortcut icons -> open window */
     document.querySelectorAll(".desktop-shortcut").forEach((btn) => {
       btn.addEventListener("click", () => {
         const winId = btn.dataset.win;
@@ -135,7 +233,7 @@ const WM = {
       });
     });
 
-    /* Taskbar app buttons → toggle window */
+    /* Taskbar app buttons -> toggle window */
     document.querySelectorAll(".taskbar-app[data-win]").forEach((btn) => {
       const winId = btn.dataset.win;
       if (!winId) return;
@@ -164,7 +262,6 @@ const WM = {
     }
     win.classList.add("open");
     this.focus(id);
-    /* Sync canvases after the element becomes visible */
     requestAnimationFrame(() => {
       win.querySelectorAll("canvas").forEach(syncCanvas);
       this._rerenderCharts(id);
@@ -208,6 +305,8 @@ const WM = {
       renderDelayChart(state.dashboard?.delay_samples || []);
     if (id === "telemetry-win")
       renderTelemetryChart(state.telemetrySpikes);
+    if (id === "battery-win")
+      renderBatteryChart(state.batteryItems);
   },
 
   _updateTaskbar() {
@@ -250,6 +349,40 @@ const WM = {
       document.addEventListener("mouseup", onUp);
     });
   },
+
+  _makeResizable(win) {
+    const handle = win.querySelector(".resize-handle");
+    if (!handle) return;
+
+    handle.addEventListener("mousedown", (e) => {
+      if (win.classList.contains("maximized")) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const ow = win.offsetWidth;
+      const oh = win.offsetHeight;
+
+      const onMove = (e) => {
+        const nw = Math.max(340, ow + e.clientX - sx);
+        const nh = Math.max(180, oh + e.clientY - sy);
+        win.style.width = nw + "px";
+        win.style.height = nh + "px";
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        /* Sync canvases after resize */
+        win.querySelectorAll("canvas").forEach(syncCanvas);
+        WM._rerenderCharts(win.id);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  },
 };
 
 /* ========================================================
@@ -284,7 +417,7 @@ function renderDelayChart(samples) {
   if (!samples || !samples.length) {
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${13 * dpr}px Segoe UI`;
-    ctx.fillText("Brak pr\u00F3bek delay", 14 * dpr, 22 * dpr);
+    ctx.fillText("No delay samples yet", 14 * dpr, 22 * dpr);
     return;
   }
 
@@ -303,7 +436,7 @@ function renderDelayChart(samples) {
     ctx.stroke();
   }
 
-  /* area fill */
+  /* Area fill */
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = pad.x + (i / Math.max(values.length - 1, 1)) * iw;
@@ -319,7 +452,7 @@ function renderDelayChart(samples) {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  /* line */
+  /* Line */
   ctx.strokeStyle = "#60cdff";
   ctx.lineWidth = 2 * dpr;
   ctx.beginPath();
@@ -352,7 +485,7 @@ function renderTelemetryChart(spikes) {
   if (!data.length) {
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${12 * dpr}px Segoe UI`;
-    ctx.fillText("Brak event\u00F3w telemetrycznych", 14 * dpr, 22 * dpr);
+    ctx.fillText("No telemetry events yet", 14 * dpr, 22 * dpr);
     return;
   }
 
@@ -512,16 +645,6 @@ function renderSwitchList() {
     row.appendChild(right);
     host.appendChild(row);
   }
-
-  /* populate select dropdowns */
-  const options = state.switchItems.map(
-    (s) =>
-      `<option value="${s.entity_id}">${s.entity_id}</option>`
-  );
-  const empty = '<option value="">-- switch --</option>';
-  setHTML("mirror-source", empty + options.join(""));
-  setHTML("mirror-target", empty + options.join(""));
-  setHTML("sensor-switch", empty + options.join(""));
 }
 
 /* ----- Mirror rules ----- */
@@ -548,7 +671,7 @@ function renderMirrorRules(rules) {
     left.appendChild(sub);
     row.appendChild(left);
     row.appendChild(
-      makeBtn("Usu\u0144", async () => {
+      makeBtn("Delete", async () => {
         await api(
           `api/mirror-rules/${encodeURIComponent(rule.id)}`,
           { method: "DELETE" }
@@ -586,7 +709,7 @@ function renderSensorRules(rules) {
     left.appendChild(sub);
     row.appendChild(left);
     row.appendChild(
-      makeBtn("Usu\u0144", async () => {
+      makeBtn("Delete", async () => {
         await api(
           `api/sensor-rules/${encodeURIComponent(rule.id)}`,
           { method: "DELETE" }
@@ -598,13 +721,189 @@ function renderSensorRules(rules) {
   }
 }
 
-function renderSensorOptions() {
-  const opts =
-    '<option value="">-- sensor --</option>' +
-    state.sensorItems
-      .map((s) => `<option value="${s.entity_id}">${s.entity_id}</option>`)
-      .join("");
-  setHTML("sensor-entity", opts);
+/* ----- Battery list (sorted weakest first) ----- */
+function renderBatteryList() {
+  const host = $("battery-list");
+  if (!host) return;
+  const q = ($("battery-search")?.value || "").trim().toLowerCase();
+  host.innerHTML = "";
+
+  const items = state.batteryItems
+    .filter(
+      (it) =>
+        !q ||
+        `${it.entity_id} ${it.friendly_name || ""}`
+          .toLowerCase()
+          .includes(q)
+    )
+    .sort((a, b) => (a.battery ?? 999) - (b.battery ?? 999));
+
+  for (const it of items) {
+    const lvl = it.battery;
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "entity-title";
+    const icon = document.createElement("i");
+    icon.className = `mdi ${batteryIcon(lvl)}`;
+    icon.style.color = batteryColor(lvl);
+    title.appendChild(icon);
+    title.appendChild(
+      document.createTextNode(it.friendly_name || it.entity_id)
+    );
+    const sub = document.createElement("div");
+    sub.className = "entity-sub";
+    sub.textContent = `${it.entity_id} \u00B7 Last: ${it.last_updated ?? "-"}`;
+    left.appendChild(title);
+    left.appendChild(sub);
+
+    const badge = document.createElement("span");
+    badge.className = `badge ${batteryBadgeClass(lvl)}`;
+    badge.textContent = lvl != null ? `${lvl}%` : "N/A";
+
+    row.appendChild(left);
+    row.appendChild(badge);
+    host.appendChild(row);
+  }
+}
+
+function batteryIcon(lvl) {
+  if (lvl == null) return "mdi-battery-unknown";
+  if (lvl <= 10) return "mdi-battery-10";
+  if (lvl <= 20) return "mdi-battery-20";
+  if (lvl <= 30) return "mdi-battery-30";
+  if (lvl <= 50) return "mdi-battery-50";
+  if (lvl <= 70) return "mdi-battery-70";
+  if (lvl <= 90) return "mdi-battery-90";
+  return "mdi-battery";
+}
+
+function batteryColor(lvl) {
+  if (lvl == null) return "#ffffff61";
+  if (lvl <= 10) return "#ff4444";
+  if (lvl <= 20) return "#ff6b6b";
+  if (lvl <= 50) return "#fce100";
+  return "#6ccb5f";
+}
+
+function batteryBadgeClass(lvl) {
+  if (lvl == null) return "mid";
+  if (lvl <= 10) return "batt-crit";
+  if (lvl <= 20) return "batt-low";
+  if (lvl <= 50) return "batt-med";
+  return "batt-ok";
+}
+
+/* ----- Battery drain chart ----- */
+function renderBatteryChart(items) {
+  const canvas = $("battery-chart");
+  if (!canvas || canvas.offsetParent === null) return;
+  syncCanvas(canvas);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  if (w === 0 || h === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#2b2b2b";
+  ctx.fillRect(0, 0, w, h);
+
+  /* Show top 6 weakest devices with battery history */
+  const withHistory = items
+    .filter((it) => it.battery_history && it.battery_history.length > 1)
+    .sort((a, b) => (a.battery ?? 999) - (b.battery ?? 999))
+    .slice(0, 6);
+
+  if (!withHistory.length) {
+    ctx.fillStyle = "#ffffff61";
+    ctx.font = `${12 * dpr}px Segoe UI`;
+    ctx.fillText("No battery history data available", 14 * dpr, 22 * dpr);
+    return;
+  }
+
+  const colors = ["#ff6b6b", "#fce100", "#60cdff", "#6ccb5f", "#da77f2", "#ff922b"];
+  const pad = { x: 36 * dpr, y: 24 * dpr };
+  const iw = w - 2 * pad.x, ih = h - 2 * pad.y;
+
+  /* Grid lines */
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "#ffffff61";
+  ctx.font = `${10 * dpr}px Segoe UI`;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.y + (ih * i) / 4;
+    const val = 100 - (i * 25);
+    ctx.beginPath();
+    ctx.moveTo(pad.x, y);
+    ctx.lineTo(w - pad.x, y);
+    ctx.stroke();
+    ctx.fillText(`${val}%`, 4 * dpr, y + 4 * dpr);
+  }
+
+  /* Draw lines for each device */
+  withHistory.forEach((dev, di) => {
+    const hist = dev.battery_history;
+    ctx.strokeStyle = colors[di % colors.length];
+    ctx.lineWidth = 1.6 * dpr;
+    ctx.beginPath();
+    hist.forEach((pt, i) => {
+      const x = pad.x + (i / Math.max(hist.length - 1, 1)) * iw;
+      const y = pad.y + ih - (pt.value / 100) * ih;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  /* Legend */
+  const legendY = h - 6 * dpr;
+  let legendX = pad.x;
+  ctx.font = `${10 * dpr}px Segoe UI`;
+  withHistory.forEach((dev, di) => {
+    ctx.fillStyle = colors[di % colors.length];
+    ctx.fillRect(legendX, legendY - 8 * dpr, 10 * dpr, 3 * dpr);
+    ctx.fillStyle = "#ffffffde";
+    const label = (dev.friendly_name || dev.entity_id).slice(0, 20);
+    ctx.fillText(label, legendX + 14 * dpr, legendY - 2 * dpr);
+    legendX += ctx.measureText(label).width + 24 * dpr;
+  });
+}
+
+/* ----- Battery alerts list ----- */
+function renderBatteryAlerts(alerts) {
+  const host = $("battery-alerts-list");
+  if (!host) return;
+  host.innerHTML = "";
+  if (!alerts || !alerts.length) {
+    host.innerHTML = '<div class="row"><div class="entity-sub">No battery alerts configured</div></div>';
+    return;
+  }
+  for (const alert of alerts) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "entity-title";
+    const icon = document.createElement("i");
+    icon.className = "mdi mdi-bell";
+    icon.style.color = "#fce100";
+    title.appendChild(icon);
+    title.appendChild(
+      document.createTextNode(`Threshold: ${alert.threshold}% → ${alert.notify_entity}`)
+    );
+    left.appendChild(title);
+    row.appendChild(left);
+    row.appendChild(
+      makeBtn("Delete", async () => {
+        await api(
+          `api/battery-alerts/${encodeURIComponent(alert.id)}`,
+          { method: "DELETE" }
+        );
+        await load();
+      })
+    );
+    host.appendChild(row);
+  }
 }
 
 /* ---------- Helpers ---------- */
@@ -636,7 +935,7 @@ async function addMirrorRule() {
   const target = $("mirror-target")?.value;
   const bi = $("mirror-bidirectional")?.checked ?? true;
   if (!source || !target || source === target) {
-    alert("Wybierz dwa r\u00F3\u017Cne switche");
+    alert("Please select two different switches");
     return;
   }
   await api("api/mirror-rules", {
@@ -654,7 +953,7 @@ async function addSensorRule() {
   const action_in_range = $("sensor-in-action")?.value;
   const action_out_of_range = $("sensor-out-action")?.value;
   if (!sensor_entity || !switch_entity) {
-    alert("Wybierz sensor i switch");
+    alert("Please select a sensor and a switch");
     return;
   }
   const body = {
@@ -673,6 +972,20 @@ async function addSensorRule() {
   await load();
 }
 
+async function addBatteryAlert() {
+  const threshold = parseInt($("battery-threshold")?.value || "20", 10);
+  const notify_entity = $("battery-notify-entity")?.value || "";
+  if (!notify_entity) {
+    alert("Please select a notify entity (phone)");
+    return;
+  }
+  await api("api/battery-alerts", {
+    method: "POST",
+    body: JSON.stringify({ threshold, notify_entity }),
+  });
+  await load();
+}
+
 /* ---------- Main data load ---------- */
 async function load() {
   if (state.loading) return;
@@ -684,6 +997,9 @@ async function load() {
     state.zhaItems = d.zigbee_devices || [];
     state.switchItems = d.switches || [];
     state.sensorItems = d.sensors || [];
+    state.batteryItems = d.battery_devices || [];
+    state.batteryAlerts = d.battery_alerts || [];
+    state.notifyEntities = d.notify_entities || [];
     state.telemetrySpikes = d.telemetry?.spikes || [];
     state.telemetryEvents = d.telemetry?.events || [];
 
@@ -692,13 +1008,15 @@ async function load() {
     renderZhaList();
     renderSwitchList();
     renderMirrorRules(d.mirror_rules || []);
-    renderSensorOptions();
     renderSensorRules(d.sensor_rules || []);
     renderTelemetryChart(state.telemetrySpikes);
     renderTelemetryLog(state.telemetryEvents);
+    renderBatteryList();
+    renderBatteryChart(state.batteryItems);
+    renderBatteryAlerts(state.batteryAlerts);
 
     if (d.runtime?.last_error) {
-      setStatus(`B\u0142\u0105d: ${d.runtime.last_error}`, true);
+      setStatus(`Error: ${d.runtime.last_error}`, true);
     } else {
       setStatus(
         `OK \u00B7 zigbee: ${d.summary?.zigbee_entities ?? 0} \u00B7 switches: ${d.summary?.switches_total ?? 0}`,
@@ -706,9 +1024,9 @@ async function load() {
       );
     }
 
-    setText("updated-at", new Date().toLocaleTimeString("pl-PL"));
+    setText("updated-at", new Date().toLocaleTimeString("en-US"));
   } catch (e) {
-    setStatus(`B\u0142\u0105d: ${e.message}`, true);
+    setStatus(`Error: ${e.message}`, true);
   } finally {
     state.loading = false;
   }
@@ -718,6 +1036,23 @@ async function load() {
 document.addEventListener("DOMContentLoaded", () => {
   /* Boot window manager */
   WM.init();
+
+  /* Init autocomplete fields */
+  initAutocomplete("mirror-source", "mirror-source-list", () =>
+    state.switchItems.map((s) => s.entity_id)
+  );
+  initAutocomplete("mirror-target", "mirror-target-list", () =>
+    state.switchItems.map((s) => s.entity_id)
+  );
+  initAutocomplete("sensor-entity", "sensor-entity-list", () =>
+    state.sensorItems.map((s) => s.entity_id)
+  );
+  initAutocomplete("sensor-switch", "sensor-switch-list", () =>
+    state.switchItems.map((s) => s.entity_id)
+  );
+  initAutocomplete("battery-notify-entity", "battery-notify-entity-list", () =>
+    state.notifyEntities.map((e) => e.entity_id)
+  );
 
   /* Refresh button */
   $("refresh-btn")?.addEventListener("click", async () => {
@@ -732,6 +1067,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* Search inputs */
   $("zha-search")?.addEventListener("input", renderZhaList);
   $("switch-search")?.addEventListener("input", renderSwitchList);
+  $("battery-search")?.addEventListener("input", renderBatteryList);
 
   /* Form buttons */
   $("add-rule-btn")?.addEventListener("click", async () => {
@@ -746,6 +1082,13 @@ document.addEventListener("DOMContentLoaded", () => {
       await addSensorRule();
     } catch (e) {
       setStatus(`Sensor: ${e.message}`, true);
+    }
+  });
+  $("save-battery-alert-btn")?.addEventListener("click", async () => {
+    try {
+      await addBatteryAlert();
+    } catch (e) {
+      setStatus(`Battery alert: ${e.message}`, true);
     }
   });
 

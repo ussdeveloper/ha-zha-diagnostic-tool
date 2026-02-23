@@ -1,5 +1,24 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.6.0] - 2026-02-23
+
+### Added
+- Battery Monitor window: weakest-first sorted list, battery drain chart (top 6), color-coded badges.
+- Battery alerts with configurable threshold and phone/notify entity selection.
+- Autocomplete dropdowns for all entity selection fields (mirror, sensor, battery alerts).
+- Window resize handles on all floating windows (drag bottom-right corner).
+- Phone/notify entity selection for battery alert notifications.
+
+### Changed
+- Entire UI, comments, and docs translated to English.
+- Start button icon replaced: Windows logo → ZHA/Zigbee icon.
+- Clock locale changed from pl-PL to en-US.
+- Select dropdowns replaced with searchable autocomplete inputs.
+- Backend error messages translated to English.
+
+### Fixed
+- Entity selection no longer uses `<select>` elements (replaced with autocomplete inputs for better UX).
+
 ## [0.5.1] - 2026-02-23
 
 ### Fixed

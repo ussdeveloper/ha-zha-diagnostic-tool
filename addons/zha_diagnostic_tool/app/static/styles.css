@@ -149,10 +149,48 @@ body {
   border-radius: 0;
 }
 
+.window.maximized .resize-handle { display: none; }
+
 @keyframes winOpen {
   from { opacity: 0; transform: scale(0.94) translateY(8px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
+
+/* ===== Window Resize Handle ===== */
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 10;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-tert);
+  border-bottom: 2px solid var(--text-tert);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.resize-handle:hover::after {
+  opacity: 1;
+}
+
+/* Edge resize cursors */
+.window.resizing-e,
+.window.resizing-e * { cursor: ew-resize !important; }
+.window.resizing-s,
+.window.resizing-s * { cursor: ns-resize !important; }
+.window.resizing-se,
+.window.resizing-se * { cursor: nwse-resize !important; }
 
 /* ===== Window Titlebar ===== */
 .window-titlebar {
@@ -390,6 +428,16 @@ body {
   display: block;
 }
 
+#battery-chart {
+  width: 100%;
+  height: 180px;
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  display: block;
+}
+
 /* ===== Toolbar / Search ===== */
 .toolbar {
   display: flex;
@@ -418,6 +466,49 @@ input, select {
 
 input:focus, select:focus { border-color: var(--accent); }
 input::placeholder { color: var(--text-tert); }
+
+/* ===== Autocomplete ===== */
+.autocomplete-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.autocomplete-input { width: 100%; }
+
+.autocomplete-list {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--mica-solid);
+  border: 1px solid var(--border-hi);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  z-index: 500;
+}
+
+.autocomplete-list.open { display: block; }
+
+.autocomplete-item {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background: rgba(255,255,255,0.08);
+}
+
+.autocomplete-item .ac-match {
+  color: var(--accent);
+  font-weight: 600;
+}
 
 /* ===== Buttons ===== */
 button {
@@ -510,6 +601,12 @@ button.accent:hover { background: var(--accent-hover); }
 .badge.off { color: var(--bad);  border-color: rgba(255,107,107,0.3); }
 .badge.mid { color: var(--warn); border-color: rgba(252,225,0,0.3); }
 
+/* ===== Battery badges ===== */
+.badge.batt-crit { color: #ff4444; border-color: rgba(255,68,68,0.4); }
+.badge.batt-low  { color: var(--bad); border-color: rgba(255,107,107,0.3); }
+.badge.batt-med  { color: var(--warn); border-color: rgba(252,225,0,0.3); }
+.badge.batt-ok   { color: var(--good); border-color: rgba(108,203,95,0.3); }
+
 /* ===== Forms ===== */
 .form-grid { display: grid; gap: 8px; flex-shrink: 0; }
 .mirror-form { grid-template-columns: 1fr 1fr auto auto; }
@@ -569,10 +666,29 @@ button.accent:hover { background: var(--accent-hover); }
   display: inline-block;
 }
 
+/* ===== Battery body ===== */
+.battery-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.battery-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.battery-toolbar input:first-child { flex: 1; min-width: 120px; }
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .sensor-form { grid-template-columns: 1fr 1fr 1fr; }
   .mirror-form { grid-template-columns: 1fr 1fr; }
+  .battery-toolbar { flex-direction: column; }
   .window.open:not(.maximized) {
     width: calc(100% - 16px) !important;
     left: 8px !important;
