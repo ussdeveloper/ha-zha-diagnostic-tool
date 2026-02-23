@@ -932,8 +932,10 @@ button.danger:hover { background: #a62115; }
 /* ===== Device Helper Explorer ===== */
 .devhelper-body {
   display: flex;
+  flex-direction: row;
   gap: 0;
   overflow: hidden;
+  padding: 0;
 }
 
 /* DevHelper horizontal resize bar */
@@ -971,12 +973,14 @@ button.danger:hover { background: #a62115; }
   height: 48px;
 }
 .devhelper-left {
-  width: 260px;
+  width: 240px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-right: 4px;
+  padding: 12px 4px 12px 12px;
+  overflow: hidden;
+  min-height: 0;
 }
 .devhelper-right {
   flex: 1;
@@ -984,7 +988,9 @@ button.danger:hover { background: #a62115; }
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding-left: 4px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 12px 12px 4px;
 }
 .devhelper-info {
   padding: 10px 12px;
@@ -1209,4 +1215,59 @@ button.danger:hover { background: #a62115; }
   opacity: 0.4;
   pointer-events: none;
   cursor: default;
+}
+
+/* ===== Folder icon-grid view ===== */
+.folder-icons-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  padding: 12px;
+}
+.folder-icon-item {
+  width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font);
+  transition: background 0.12s, border-color 0.12s;
+}
+.folder-icon-item:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+}
+.folder-icon-item .fi-icon {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  color: var(--accent);
+}
+.folder-icon-item span {
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.25;
+  word-break: break-all;
+  color: var(--text);
+  max-width: 76px;
+}
+.folder-icon-item .fi-state {
+  font-size: 10px;
+  color: var(--text-tert);
+  margin-top: 1px;
 }

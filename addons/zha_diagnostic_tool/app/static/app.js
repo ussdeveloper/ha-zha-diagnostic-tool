@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.5) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.6) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -1982,6 +1982,7 @@ function initEntityDropTargets() {
           folderData.entities.push(payload.entity_id);
           localStorage.setItem("zha_desktop_folders", JSON.stringify(state.folders));
           renderDesktopFolders();
+          refreshFolderWindow(folderId);
         }
         return;
       }
@@ -2174,6 +2175,7 @@ function initDesktopIconDrag() {
               state.desktopSelected.clear();
               renderEntityShortcuts();
               renderDesktopFolders();
+              refreshFolderWindow(folderId);
             }
             return;
           }
@@ -2828,31 +2830,60 @@ function renderFolderEntities(folder) {
   }
 }
 
+function _buildFolderIconGrid(folder) {
+  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+  const grid = document.createElement("div");
+  grid.className = "folder-icons-grid";
+
+  if (!folder.entities || !folder.entities.length) {
+    grid.innerHTML = '<div style="color:var(--text-tert);font-size:12px;padding:8px">Empty folder. Drag entity shortcuts here.</div>';
+    return grid;
+  }
+
+  for (const eid of folder.entities) {
+    const entity = allEntities.find(e => e.entity_id === eid);
+    const btn = document.createElement("button");
+    btn.className = "folder-icon-item";
+    btn.title = eid;
+    if (entity) {
+      const ic = entity.icon?.startsWith("mdi:") ? entity.icon.replace(":", "-") : "mdi-zigbee";
+      const label = (entity.friendly_name || eid).slice(0, 18);
+      const st = entity.state || "?";
+      btn.innerHTML =
+        `<div class="fi-icon"><i class="mdi ${ic}"></i></div>` +
+        `<span>${escapeHtml(label)}</span>` +
+        `<div class="fi-state">${escapeHtml(st)}</div>`;
+      btn.addEventListener("dblclick", () => openDeviceDetail(entity));
+    } else {
+      btn.innerHTML =
+        `<div class="fi-icon"><i class="mdi mdi-help-circle"></i></div>` +
+        `<span>${escapeHtml(eid.slice(0, 18))}</span>` +
+        `<div class="fi-state">?</div>`;
+    }
+    grid.appendChild(btn);
+  }
+  return grid;
+}
+
+function refreshFolderWindow(folderId) {
+  const winId = `folder-win-${folderId}`;
+  const win = $(winId);
+  if (!win) return;
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const oldGrid = win.querySelector(".folder-icons-grid");
+  if (oldGrid) oldGrid.replaceWith(_buildFolderIconGrid(folder));
+}
+
 function openFolderWindow(folderId) {
   const folder = state.folders.find(f => f.id === folderId);
   if (!folder) return;
   const winId = `folder-win-${folderId}`;
-  if ($(winId)) { WM.open(winId); return; }
+  if ($(winId)) { WM.open(winId); WM.focus(winId); return; }
 
-  const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
   const win = document.createElement("section");
   win.className = "window";
   win.id = winId;
-
-  let entitiesHtml = "";
-  for (const eid of folder.entities) {
-    const entity = allEntities.find(e => e.entity_id === eid);
-    if (entity) {
-      const ic = entity.icon?.startsWith("mdi:") ? entity.icon.replace(":", "-") : "mdi-zigbee";
-      const lqiStr = entity.lqi != null ? ` \u00B7 LQI: ${entity.lqi}` : "";
-      entitiesHtml += `<div class="row"><div>` +
-        `<div class="entity-title"><i class="mdi ${ic}"></i> ${escapeHtml(entity.friendly_name || eid)}</div>` +
-        `<div class="entity-sub">${escapeHtml(eid)}${lqiStr}</div>` +
-        `</div><span class="badge ${entity.state === "on" ? "on" : entity.state === "off" ? "off" : "mid"}">${escapeHtml(entity.state || "-")}</span></div>`;
-    } else {
-      entitiesHtml += `<div class="row"><div class="entity-sub">${escapeHtml(eid)} (not found)</div></div>`;
-    }
-  }
 
   win.innerHTML = `
     <div class="window-titlebar">
@@ -2864,16 +2895,16 @@ function openFolderWindow(folderId) {
         <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
       </div>
     </div>
-    <div class="window-body">
-      <div class="list" style="flex:1;min-height:0">${entitiesHtml || '<div class="row"><div class="entity-sub">Empty folder. Right-click \u2192 Properties to add entities.</div></div>'}</div>
-    </div>
+    <div class="window-body" style="padding:0;gap:0"></div>
     <div class="resize-handle"></div>`;
+
+  win.querySelector(".window-body").appendChild(_buildFolderIconGrid(folder));
 
   $("desktop").appendChild(win);
   const offset = 20 + (state.deviceWinCount % 5) * 24;
-  WM.defaults[winId] = { w: 480, h: 380, x: 200 + offset, y: 60 + offset };
-  win.style.width = "480px";
-  win.style.height = "380px";
+  WM.defaults[winId] = { w: 500, h: 400, x: 200 + offset, y: 60 + offset };
+  win.style.width = "500px";
+  win.style.height = "400px";
   win.style.left = (200 + offset) + "px";
   win.style.top = (60 + offset) + "px";
   WM._makeDraggable(win);
@@ -3029,6 +3060,8 @@ async function load() {
     renderBatteryAlerts(state.batteryAlerts);
     renderLightsList();
     renderNetworkMap();
+    // Refresh any open folder windows with current entity states
+    state.folders.forEach(f => refreshFolderWindow(f.id));
     renderZigbeeLogs();
     renderZhaHealth();
 
