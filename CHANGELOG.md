@@ -4,6 +4,17 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.5.0] - 2026-02-23
+
+### Changed
+- Pełna przebudowa frontendu na Windows 11 Fluent Design.
+- Taskbar, window chrome, Mica/Acrylic material, telemetry legend.
+- Skrypt deploy.ps1 z interaktywnym menu stłrzalkowym.
+- Plik .github/copilot-instructions.md dla agenta.
+
+### Fixed
+- Auto-refresh, canvas DPR, grid overlap, switch button nesting.
+
 ## [0.4.2] - 2026-02-23
 
 ### Fixed

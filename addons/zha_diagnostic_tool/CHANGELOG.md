@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.4.0] - 2026-02-23
+
+### Changed
+- Pełna przebudowa UI na Windows 11 Fluent Design (Mica, Acrylic, WinUI 3).
+- Okna z prawdziwym window chrome (ikona + tytuł + min/max/close).
+- Taskbar na dole z ikonami aplikacji, zegarem i statusem.
+- Canvas rendering z DPR sync (ostre wykresy na HiDPI).
+- Re-write app.js: wyeliminowanie migotania, guard `loading`, null-safe DOM.
+- Telemetria z legendą kolorów.
+
+### Fixed
+- Auto-refresh nie crashuje na null elementach.
+- Lista switchy nie ma zagnieżdżonych `.right-actions`.
+- Okna Mirror i Sensor nie nakładają się (4-wierszowy grid).
+
 ## [0.3.2] - 2026-02-23
 
 ### Fixed

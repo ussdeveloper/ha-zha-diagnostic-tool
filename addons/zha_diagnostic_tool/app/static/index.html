@@ -1,117 +1,185 @@
 <!doctype html>
 <html lang="pl">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZHA Diagnostic Desktop</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-    <link rel="stylesheet" href="static/styles.css" />
-  </head>
-  <body>
-    <header class="desktop-titlebar">
-      <div class="app-mark">
-        <i class="mdi mdi-home-assistant"></i>
-        <span>ZHA Diagnostic Desktop</span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZHA Diagnostic Desktop</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
+  <link rel="stylesheet" href="static/styles.css" />
+</head>
+<body>
+
+  <!-- ===== DESKTOP AREA ===== -->
+  <main class="desktop">
+
+    <!-- KPI / Delay Window -->
+    <section class="window phi-widget">
+      <div class="window-titlebar">
+        <i class="mdi mdi-chart-line win-icon"></i>
+        <span class="win-title">Pulpit — KPI &amp; Delay Chart</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
       </div>
-      <div class="title-meta">
-        <span class="pill"><i class="mdi mdi-chart-timeline-variant"></i> Grafana-style</span>
-        <span class="pill"><i class="mdi mdi-microsoft-windows"></i> Windows-like UI</span>
-        <button id="refresh-btn"><i class="mdi mdi-refresh"></i> Odśwież</button>
+      <div class="window-body">
+        <div class="kpis">
+          <div class="kpi"><label>Zigbee Encje</label><strong id="kpi-entities">-</strong></div>
+          <div class="kpi"><label>Switche</label><strong id="kpi-switches">-</strong></div>
+          <div class="kpi"><label>Mirror Rules</label><strong id="kpi-rules">-</strong></div>
+          <div class="kpi"><label>Sensor Rules</label><strong id="kpi-srules">-</strong></div>
+          <div class="kpi"><label>Delay AVG</label><strong id="kpi-avg">-</strong></div>
+          <div class="kpi"><label>Delay P95</label><strong id="kpi-p95">-</strong></div>
+          <div class="kpi"><label>Delay MAX</label><strong id="kpi-max">-</strong></div>
+          <div class="kpi"><label>Pending</label><strong id="kpi-pending">-</strong></div>
+        </div>
+        <canvas id="delay-chart"></canvas>
       </div>
-    </header>
+    </section>
 
-    <div id="status-bar" class="status-bar">Status: inicjalizacja…</div>
-
-    <main class="desktop-grid">
-      <section class="window phi-widget">
-        <div class="window-head"><i class="mdi mdi-chart-line"></i> Pulpit: PHI / Delay / Sieć</div>
-        <div class="window-body">
-          <div class="kpis">
-            <div class="kpi"><label>Zigbee Encje</label><strong id="kpi-entities">-</strong></div>
-            <div class="kpi"><label>Switche</label><strong id="kpi-switches">-</strong></div>
-            <div class="kpi"><label>Mirror Rules</label><strong id="kpi-rules">-</strong></div>
-            <div class="kpi"><label>Sensor Rules</label><strong id="kpi-srules">-</strong></div>
-            <div class="kpi"><label>Delay AVG</label><strong id="kpi-avg">-</strong></div>
-            <div class="kpi"><label>Delay PHI/P95</label><strong id="kpi-p95">-</strong></div>
-            <div class="kpi"><label>Delay MAX</label><strong id="kpi-max">-</strong></div>
-            <div class="kpi"><label>Pending</label><strong id="kpi-pending">-</strong></div>
-          </div>
-          <canvas id="delay-chart" width="1200" height="280"></canvas>
+    <!-- ZHA Entities Window -->
+    <section class="window zha-window">
+      <div class="window-titlebar">
+        <i class="mdi mdi-zigbee win-icon"></i>
+        <span class="win-title">Encje ZHA</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
         </div>
-      </section>
-
-      <section class="window zha-window">
-        <div class="window-head"><i class="mdi mdi-zigbee"></i> Aplikacja: Encje ZHA (Szczegóły)</div>
-        <div class="window-body">
-          <div class="toolbar">
-            <input id="zha-search" placeholder="Szukaj encji ZHA, friendly name, state..." />
-            <span class="meta">Ostatnia aktualizacja: <b id="updated-at">-</b></span>
-          </div>
-          <div id="zha-list" class="list"></div>
+      </div>
+      <div class="window-body">
+        <div class="toolbar">
+          <input id="zha-search" placeholder="Szukaj encji ZHA..." />
+          <span class="meta"><b id="updated-at">-</b></span>
         </div>
-      </section>
+        <div id="zha-list" class="list"></div>
+      </div>
+    </section>
 
-      <section class="window switch-window">
-        <div class="window-head"><i class="mdi mdi-toggle-switch"></i> Aplikacja: Switche (Szczegóły + Search)</div>
-        <div class="window-body">
-          <div class="toolbar">
-            <input id="switch-search" placeholder="Szukaj switchy..." />
-          </div>
-          <div id="switch-list" class="list"></div>
+    <!-- Switches Window -->
+    <section class="window switch-window">
+      <div class="window-titlebar">
+        <i class="mdi mdi-toggle-switch win-icon"></i>
+        <span class="win-title">Switche</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
         </div>
-      </section>
-
-      <section class="window telemetry-window">
-        <div class="window-head"><i class="mdi mdi-pulse"></i> Aplikacja: Telemetria ZHA (Realtime)</div>
-        <div class="window-body telemetry-body">
-          <div class="telemetry-top">
-            <canvas id="telemetry-chart" width="620" height="220"></canvas>
-          </div>
-          <div class="telemetry-bottom">
-            <div id="telemetry-log" class="list"></div>
-          </div>
+      </div>
+      <div class="window-body">
+        <div class="toolbar">
+          <input id="switch-search" placeholder="Szukaj switchy..." />
         </div>
-      </section>
+        <div id="switch-list" class="list"></div>
+      </div>
+    </section>
 
-      <section class="window mirror-window">
-        <div class="window-head"><i class="mdi mdi-link-variant"></i> Aplikacja: Mirror Switches</div>
-        <div class="window-body">
-          <div class="form-grid mirror-form">
-            <select id="mirror-source"></select>
-            <select id="mirror-target"></select>
-            <label class="checkbox"><input type="checkbox" id="mirror-bidirectional" checked /> Domyślnie w obie strony</label>
-            <button id="add-rule-btn"><i class="mdi mdi-plus"></i> Linkuj encje</button>
-          </div>
-          <div id="rules-list" class="list"></div>
+    <!-- Telemetry Window -->
+    <section class="window telemetry-window">
+      <div class="window-titlebar">
+        <i class="mdi mdi-pulse win-icon"></i>
+        <span class="win-title">Telemetria ZHA (Realtime)</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
         </div>
-      </section>
-
-      <section class="window sensor-window">
-        <div class="window-head"><i class="mdi mdi-tune-variant"></i> Aplikacja: Sensor range -> sterowanie switchem</div>
-        <div class="window-body">
-          <div class="form-grid sensor-form">
-            <select id="sensor-entity"></select>
-            <select id="sensor-switch"></select>
-            <input id="sensor-min" type="number" step="any" placeholder="MIN (opcjonalnie)" />
-            <input id="sensor-max" type="number" step="any" placeholder="MAX (opcjonalnie)" />
-            <select id="sensor-in-action">
-              <option value="turn_on">W zakresie: turn_on</option>
-              <option value="turn_off">W zakresie: turn_off</option>
-              <option value="toggle">W zakresie: toggle</option>
-            </select>
-            <select id="sensor-out-action">
-              <option value="none">Poza zakresem: none</option>
-              <option value="turn_on">Poza zakresem: turn_on</option>
-              <option value="turn_off">Poza zakresem: turn_off</option>
-              <option value="toggle">Poza zakresem: toggle</option>
-            </select>
-            <button id="add-sensor-rule-btn"><i class="mdi mdi-plus"></i> Dodaj regułę</button>
+      </div>
+      <div class="window-body telemetry-body">
+        <div class="telemetry-top">
+          <div class="tele-legend">
+            <span><i class="dot" style="background:#60cdff"></i> ZHA</span>
+            <span><i class="dot" style="background:#6ccb5f"></i> State</span>
+            <span><i class="dot" style="background:#fce100"></i> Call</span>
+            <span><i class="dot" style="background:#ff6b6b"></i> Error</span>
           </div>
-          <div id="sensor-rules-list" class="list"></div>
+          <canvas id="telemetry-chart"></canvas>
         </div>
-      </section>
-    </main>
+        <div class="telemetry-bottom">
+          <div id="telemetry-log" class="list"></div>
+        </div>
+      </div>
+    </section>
 
-    <script src="static/app.js"></script>
-  </body>
+    <!-- Mirror Switches Window -->
+    <section class="window mirror-window">
+      <div class="window-titlebar">
+        <i class="mdi mdi-link-variant win-icon"></i>
+        <span class="win-title">Mirror Switches</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="form-grid mirror-form">
+          <select id="mirror-source"></select>
+          <select id="mirror-target"></select>
+          <label class="checkbox"><input type="checkbox" id="mirror-bidirectional" checked /> Obie strony</label>
+          <button class="accent" id="add-rule-btn"><i class="mdi mdi-plus"></i> Linkuj</button>
+        </div>
+        <div id="rules-list" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Sensor Range Window -->
+    <section class="window sensor-window">
+      <div class="window-titlebar">
+        <i class="mdi mdi-tune-variant win-icon"></i>
+        <span class="win-title">Sensor Range → Switch</span>
+        <div class="window-controls">
+          <span class="win-ctrl"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="form-grid sensor-form">
+          <select id="sensor-entity"></select>
+          <select id="sensor-switch"></select>
+          <input id="sensor-min" type="number" step="any" placeholder="MIN" />
+          <input id="sensor-max" type="number" step="any" placeholder="MAX" />
+          <select id="sensor-in-action">
+            <option value="turn_on">In: turn_on</option>
+            <option value="turn_off">In: turn_off</option>
+            <option value="toggle">In: toggle</option>
+          </select>
+          <select id="sensor-out-action">
+            <option value="none">Out: none</option>
+            <option value="turn_on">Out: turn_on</option>
+            <option value="turn_off">Out: turn_off</option>
+            <option value="toggle">Out: toggle</option>
+          </select>
+          <button class="accent" id="add-sensor-rule-btn"><i class="mdi mdi-plus"></i> Dodaj</button>
+        </div>
+        <div id="sensor-rules-list" class="list"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===== TASKBAR (Windows 11 style, bottom) ===== -->
+  <div class="taskbar">
+    <div class="taskbar-status">
+      <span id="taskbar-dot" class="dot"></span>
+      <span id="taskbar-status-text">Inicjalizacja...</span>
+    </div>
+
+    <button class="taskbar-btn active" title="Pulpit"><i class="mdi mdi-monitor-dashboard"></i></button>
+    <button class="taskbar-btn active" title="Encje ZHA"><i class="mdi mdi-zigbee"></i></button>
+    <button class="taskbar-btn active" title="Switche"><i class="mdi mdi-toggle-switch"></i></button>
+    <button class="taskbar-btn active" title="Telemetria"><i class="mdi mdi-pulse"></i></button>
+    <button class="taskbar-btn active" title="Mirror"><i class="mdi mdi-link-variant"></i></button>
+    <button class="taskbar-btn active" title="Sensor Rules"><i class="mdi mdi-tune-variant"></i></button>
+    <button class="taskbar-btn" id="refresh-btn" title="Odśwież dane"><i class="mdi mdi-refresh"></i></button>
+
+    <div class="taskbar-clock" id="taskbar-clock"></div>
+  </div>
+
+  <script src="static/app.js"></script>
+</body>
 </html>
