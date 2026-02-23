@@ -4,6 +4,17 @@ Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 
 Format inspirowany Keep a Changelog, wersjonowanie zgodne z SemVer.
 
+## [0.3.0] - 2026-02-23
+
+### Added
+- Add-on `zha_diagnostic_tool` otrzymał własny UI przez HA Ingress (VSCode-style).
+- Grafana-style wykresy opóźnień przełączeń switch -> ack.
+- Widok wszystkich wykrytych encji Zigbee.
+- Reguły mirror switch (one-way i bidirectional) konfigurowane z UI.
+
+### Changed
+- Runtime add-ona przebudowany na backend Python + API eventowe.
+
 ## [0.2.1] - 2026-02-23
 
 ### Added

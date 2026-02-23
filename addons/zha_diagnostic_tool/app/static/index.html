@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZHA Diagnostic UI</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="title">ZHA Diagnostic UI</div>
+        <div class="subtitle">VSCode-style panel · Grafana-style wykresy · Mirror switch</div>
+      </div>
+      <div>
+        <button id="refresh-btn">Odśwież</button>
+        <span class="subtitle">Ostatnia aktualizacja: <span id="updated-at">-</span></span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section>
+        <div class="card">
+          <h3>KPI delay i stan sieci</h3>
+          <div class="kpis">
+            <div class="kpi"><div class="label">Zigbee encje</div><div class="value" id="kpi-entities">-</div></div>
+            <div class="kpi"><div class="label">Zigbee switche</div><div class="value" id="kpi-switches">-</div></div>
+            <div class="kpi"><div class="label">Mirror rules</div><div class="value" id="kpi-rules">-</div></div>
+            <div class="kpi"><div class="label">Delay AVG</div><div class="value" id="kpi-avg">-</div></div>
+            <div class="kpi"><div class="label">Delay p95</div><div class="value" id="kpi-p95">-</div></div>
+            <div class="kpi"><div class="label">Delay MAX</div><div class="value" id="kpi-max">-</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Mirror switch rules</h3>
+          <div class="form">
+            <select id="mirror-source"></select>
+            <select id="mirror-target"></select>
+            <button id="add-rule-btn">Dodaj</button>
+          </div>
+          <label class="meta"><input type="checkbox" id="mirror-bidirectional" /> Bidirectional</label>
+          <div class="list" id="rules-list"></div>
+        </div>
+
+        <div class="card">
+          <h3>Switche Zigbee</h3>
+          <div class="list" id="switch-list"></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="card">
+          <h3>Delay switch → ack (Grafana style)</h3>
+          <canvas id="delay-chart" class="chart" width="900" height="240"></canvas>
+        </div>
+
+        <div class="card">
+          <h3>Wszystkie wykryte urządzenia/encje Zigbee</h3>
+          <div class="list" id="device-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

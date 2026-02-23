@@ -17,11 +17,17 @@
 
 1. Dodaj repozytorium dodatków według `docs/ADDON_REPOSITORY.md`.
 2. Zainstaluj add-on **ZHA Diagnostic Companion**.
-3. Ustaw `run_interval_minutes` oraz `log_tail_lines`.
-4. Uruchom add-on i obserwuj jego logi.
+3. Ustaw opcje:
+	- `poll_interval_seconds`
+	- `max_delay_samples`
+	- `mirror_cooldown_ms`
+	- `grafana_theme`
+4. Uruchom add-on.
+5. Otwórz panel add-ona przez Ingress i skonfiguruj reguły mirror.
 
 ## Co sprawdzić po instalacji
 
 - encja `binary_sensor` sygnalizuje problemy,
 - sensory diagnostyczne raportują liczność i typy problemów,
 - powiadomienia działają (jeśli skonfigurowano `notify.*`).
+- panel add-ona pokazuje delay `switch -> ack` oraz listę wykrytych encji Zigbee.

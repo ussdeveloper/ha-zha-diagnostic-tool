@@ -1,5 +1,18 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.2.0] - 2026-02-23
+
+### Added
+- Własny web UI add-ona dostępny przez Home Assistant Ingress.
+- Dashboard w stylistyce VSCode dark.
+- Wykres delay switch -> ack (Grafana-style).
+- API do odczytu dashboardu i sterowania switchami.
+- Obsługa reguł mirror (one-way / bidirectional) między switchami.
+
+### Changed
+- Przebudowa runtime add-ona z prostego skryptu bash na backend Python (`aiohttp`).
+- Nowy model konfiguracji add-ona pod monitoring eventowy.
+
 ## [0.1.1] - 2026-02-23
 
 ### Added

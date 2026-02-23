@@ -1,7 +1,7 @@
 name: "ZHA Diagnostic Companion"
-version: "0.1.1"
+version: "0.2.0"
 slug: "zha_diagnostic_tool"
-description: "Companion add-on: okresowy audyt logów Zigbee i wsparcie diagnostyki sieci"
+description: "Companion add-on z web UI: monitoring Zigbee, delay switch->ack, wykresy i mirror switch"
 url: "https://github.com/ussdeveloper/ha-zha-diagnostic-tool"
 arch:
   - aarch64
@@ -13,11 +13,21 @@ startup: services
 boot: auto
 init: false
 homeassistant: "2024.6.0"
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:chart-timeline-variant
+panel_title: ZHA Diagnostic UI
 map:
   - config:rw
+ports:
+  8099/tcp: null
 options:
-  run_interval_minutes: 15
-  log_tail_lines: 5000
+  poll_interval_seconds: 2
+  max_delay_samples: 300
+  mirror_cooldown_ms: 1200
+  grafana_theme: "vscode-dark"
 schema:
-  run_interval_minutes: "int(1,1440)"
-  log_tail_lines: "int(100,50000)"
+  poll_interval_seconds: "int(1,30)"
+  max_delay_samples: "int(50,5000)"
+  mirror_cooldown_ms: "int(100,10000)"
+  grafana_theme: "list(vscode-dark|grafana-dark)"

@@ -11,6 +11,7 @@
 3. Wklej URL repo i zapisz.
 4. Odśwież sklep dodatków.
 5. Wyszukaj i zainstaluj **ZHA Diagnostic Companion**.
+6. Po uruchomieniu otwórz panel add-ona (Ingress), aby użyć UI.
 
 ## Jak to działa
 
@@ -21,4 +22,5 @@
 
 - Jeśli add-on nie pojawia się na liście: sprawdź, czy repo jest publiczne.
 - Jeśli instalacja się nie buduje: sprawdź logi add-on buildera w HA.
-- Jeśli brak logu `home-assistant.log`: upewnij się, że add-on ma mapowanie `config:rw`.
+- Jeśli panel nie pokazuje danych: sprawdź logi add-ona i dostęp do API Supervisor.
+- Jeśli delay nie liczy się poprawnie: upewnij się, że eventy `call_service` i `state_changed` są odbierane.
