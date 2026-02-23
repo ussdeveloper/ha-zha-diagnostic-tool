@@ -1,0 +1,60 @@
+{
+  "title": "Zigbee Network Diagnostic",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Konfiguracja Zigbee Diagnostic",
+        "description": "Ustaw progi monitoringu i kanał powiadomień.",
+        "data": {
+          "scan_interval": "Interwał skanowania (sekundy)",
+          "low_lqi_threshold": "Próg niskiego LQI",
+          "stale_minutes": "Maksymalny czas bez aktualizacji (min)",
+          "offline_grace_minutes": "Czas tolerancji offline (min)",
+          "log_errors_window_minutes": "Okno logów Zigbee (min)",
+          "notify_service": "Usługa notify (np. notify.mobile_app_telefon)",
+          "enable_persistent_notifications": "Twórz persistent_notification"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Ta integracja może być dodana tylko raz."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje Zigbee Diagnostic",
+        "data": {
+          "scan_interval": "Interwał skanowania (sekundy)",
+          "low_lqi_threshold": "Próg niskiego LQI",
+          "stale_minutes": "Maksymalny czas bez aktualizacji (min)",
+          "offline_grace_minutes": "Czas tolerancji offline (min)",
+          "log_errors_window_minutes": "Okno logów Zigbee (min)",
+          "notify_service": "Usługa notify (np. notify.mobile_app_telefon)",
+          "enable_persistent_notifications": "Twórz persistent_notification"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "issue_count": {
+        "name": "Liczba problemów Zigbee"
+      },
+      "lowest_lqi": {
+        "name": "Najniższy LQI"
+      },
+      "checked_devices": {
+        "name": "Sprawdzone urządzenia"
+      },
+      "recent_log_errors": {
+        "name": "Błędy Zigbee w logach"
+      }
+    },
+    "binary_sensor": {
+      "network_problem": {
+        "name": "Problemy sieci Zigbee"
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+name: "ZHA Diagnostic Companion"
+version: "0.1.1"
+slug: "zha_diagnostic_tool"
+description: "Companion add-on: okresowy audyt logów Zigbee i wsparcie diagnostyki sieci"
+url: "https://github.com/ussdeveloper/ha-zha-diagnostic-tool"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+boot: auto
+init: false
+homeassistant: "2024.6.0"
+map:
+  - config:rw
+options:
+  run_interval_minutes: 15
+  log_tail_lines: 5000
+schema:
+  run_interval_minutes: "int(1,1440)"
+  log_tail_lines: "int(100,50000)"

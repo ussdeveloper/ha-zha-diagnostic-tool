@@ -1,0 +1,16 @@
+{
+  "domain": "zigbee_diagnostic",
+  "name": "Zigbee Network Diagnostic",
+  "version": "0.2.1",
+  "documentation": "https://github.com/ussdeveloper/ha-zha-diagnostic-tool",
+  "issue_tracker": "https://github.com/ussdeveloper/ha-zha-diagnostic-tool/issues",
+  "config_flow": true,
+  "codeowners": [
+    "@sulaco"
+  ],
+  "iot_class": "local_polling",
+  "requirements": [],
+  "loggers": [
+    "custom_components.zigbee_diagnostic"
+  ]
+}
