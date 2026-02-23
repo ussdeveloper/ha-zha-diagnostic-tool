@@ -1019,6 +1019,31 @@ button.danger:hover { background: #a62115; }
   }
 }
 
+/* ===== ZHA Health Banner ===== */
+.zha-health-banner {
+  position: fixed;
+  bottom: 48px;        /* just above taskbar */
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 380px;
+  max-width: 820px;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(30, 10, 10, 0.95);
+  border: 1px solid rgba(255, 80, 80, 0.55);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  backdrop-filter: blur(12px);
+}
+.zha-health-banner ul { font-size: 12px; color: var(--text-sec); }
+.zha-health-banner button { background: transparent; border: none; color: var(--text-sec); font-size: 16px; cursor: pointer; padding: 0 4px; }
+.zha-health-banner button:hover { color: var(--text); }
+
 /* ===== Log Textarea ===== */
 .log-textarea {
   width: 100%;

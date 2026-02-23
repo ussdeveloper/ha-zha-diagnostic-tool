@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.9.1] - 2026-02-23
+
+### Fixed
+- Dashboard delay chart live resize (RAF-throttled canvas sync during drag).
+- Network Map: coordinator filtered from node list (no more duplicate HUB).
+- Network Map: removed dangling `groupDevicesForMap` call.
+- Device Helper: uses `zhaDevicesFull` embedded endpoint data instead of broken `zha/devices/clusters` WS command.
+
+### Added
+- Network Map: zoom toward mouse cursor on scroll wheel.
+- Network Map: minimap overlay (140×90) in bottom-right with viewport indicator.
+- ZHA Health Banner: detected issues (multiple coordinators, unavailable devices) shown as a dismissable alert banner above the taskbar.
+
+### Changed
+- Cache-bust `?v=091`.
+
 ## [0.9.0] - 2026-02-25
 
 ### Added

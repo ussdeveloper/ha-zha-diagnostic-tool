@@ -1,5 +1,22 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.1] - 2026-02-23
+
+### Fixed
+- **Dashboard delay chart**: canvas now redraws live during window resize (RAF-throttled), not just on mouse-up.
+- **Network Map duplicate coordinator**: coordinator node (`is_coordinator: true`) is now filtered from the device list — only drawn once as the center HUB.
+- **Network Map crash**: removed dangling `groupDevicesForMap` reference (function was removed in v0.9.0 but ref remained).
+- **Device Helper clusters**: no longer calls broken `zha/devices/clusters` WS command. Uses embedded endpoint/cluster data from `state.zhaDevicesFull` (fetched by `zha/devices`) directly. Falls back to API only if data unavailable.
+- **Device Helper device list**: also uses `state.zhaDevicesFull` when available (avoids duplicate WS call, coordinator excluded).
+
+### Added
+- **Network Map zoom toward cursor**: scroll wheel now zooms toward the mouse pointer, not canvas center.
+- **Network Map minimap**: small 140×90 overlay in bottom-right corner showing full graph at scale with viewport rectangle.
+- **ZHA Health Alert Banner**: banner shown above taskbar when ZHA issues are detected (multiple coordinators, many unavailable devices). Detects issues in `_maybe_fetch_zha_map`. Dismissable.
+
+### Changed
+- Cache-bust bumped to `?v=091`.
+
 ## [0.9.0] - 2026-02-25
 
 ### Added

@@ -81,6 +81,8 @@ class DiagnosticRuntime:
         self.zha_devices_full: list[dict[str, Any]] = []
         # Zigbee error log: timeout, not_delivered, link failures
         self.zigbee_error_log: deque[dict[str, Any]] = deque(maxlen=500)
+        # Health issues detected from ZHA state
+        self.zha_health_issues: list[str] = []
 
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
@@ -336,6 +338,29 @@ class DiagnosticRuntime:
             resp = await self._ws_command({"type": "zha/devices"})
             if resp.get("success"):
                 self.zha_devices_full = resp.get("result", [])
+                # Health checks
+                issues: list[str] = []
+                all_devs = self.zha_devices_full
+                coordinators = [d for d in all_devs if d.get("is_coordinator")]
+                if len(coordinators) > 1:
+                    names = ", ".join(
+                        d.get("user_given_name") or d.get("name") or d.get("ieee", "?")
+                        for d in coordinators
+                    )
+                    issues.append(
+                        f"{len(coordinators)} ZHA coordinators detected ({names}). "
+                        "Only one coordinator is expected. Check ZHA integration settings."
+                    )
+                unavailable = [
+                    d for d in all_devs
+                    if not d.get("is_coordinator") and d.get("available") is False
+                ]
+                if len(unavailable) >= 3:
+                    issues.append(
+                        f"{len(unavailable)} Zigbee device(s) are currently unavailable. "
+                        "Check device power and range."
+                    )
+                self.zha_health_issues = issues
         except Exception as exc:  # noqa: BLE001
             LOGGER.debug("ZHA map fetch error: %s", exc)
 
@@ -756,6 +781,7 @@ class DiagnosticRuntime:
             "command_log": list(self.command_log)[-100:],
             "zha_devices_full": self.zha_devices_full,
             "zigbee_error_log": list(self.zigbee_error_log)[-200:],
+            "zha_health_issues": self.zha_health_issues,
         }
 
     def _command_success_rate(self) -> float | None:

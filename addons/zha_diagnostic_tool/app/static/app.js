@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.0) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.1) ===== */
 "use strict";
 
 /* ---------- State ---------- */
@@ -24,6 +24,7 @@ const state = {
   zigbeeErrorLog: [],
   zigbeeLogsPaused: false,
   zhaDevicesFull: [],
+  zhaHealthIssues: [],
   iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
 };
 
@@ -403,17 +404,25 @@ const WM = {
       const ow = win.offsetWidth;
       const oh = win.offsetHeight;
 
+      let _rafPending = false;
       const onMove = (e) => {
         const nw = Math.max(340, ow + e.clientX - sx);
         const nh = Math.max(180, oh + e.clientY - sy);
         win.style.width = nw + "px";
         win.style.height = nh + "px";
+        if (!_rafPending) {
+          _rafPending = true;
+          requestAnimationFrame(() => {
+            _rafPending = false;
+            win.querySelectorAll("canvas").forEach(syncCanvas);
+            WM._rerenderCharts(win.id);
+          });
+        }
       };
 
       const onUp = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        /* Sync canvases after resize */
         win.querySelectorAll("canvas").forEach(syncCanvas);
         WM._rerenderCharts(win.id);
       };
@@ -1178,10 +1187,10 @@ function renderNetworkMap() {
   ctx.translate(w / 2 + nm.panX * dpr, h / 2 + nm.panY * dpr);
   ctx.scale(nm.zoom, nm.zoom);
 
-  // Use full ZHA device list if available, else group from entities
+  // Use full ZHA device list — filter out the coordinator (drawn separately as HUB)
   const devices = state.zhaDevicesFull.length
-    ? state.zhaDevicesFull
-    : groupDevicesForMap(state.zhaItems);
+    ? state.zhaDevicesFull.filter(d => !d.is_coordinator)
+    : [];
 
   if (!devices.length) {
     ctx.restore();
@@ -1353,6 +1362,109 @@ function renderNetworkMap() {
     ctx.fillText(label, lx + 8 * dpr, ly + 4 * dpr + i * 16 * dpr);
   });
   ctx.textAlign = "center";
+
+  // ── Minimap (bottom-right overlay) ──────────────────
+  if (nm.nodes && nm.nodes.length) {
+    const dprMm = window.devicePixelRatio || 1;
+    const mmW = Math.round(140 * dprMm), mmH = Math.round(90 * dprMm);
+    const mmX = w - mmW - 8 * dprMm, mmY = h - mmH - 8 * dprMm;
+
+    // Bounding box of all nodes in world space
+    let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+    for (const n of nm.nodes) {
+      mnX = Math.min(mnX, n.x); mxX = Math.max(mxX, n.x);
+      mnY = Math.min(mnY, n.y); mxY = Math.max(mxY, n.y);
+    }
+    // Ensure coordinator (0,0) in bounds
+    mnX = Math.min(mnX, -20*dprMm); mxX = Math.max(mxX, 20*dprMm);
+    mnY = Math.min(mnY, -20*dprMm); mxY = Math.max(mxY, 20*dprMm);
+    const rangeX = mxX - mnX || 1, rangeY = mxY - mnY || 1;
+    const mmPad = 8 * dprMm;
+    const scaleX = (mmW - 2*mmPad) / rangeX;
+    const scaleY = (mmH - 2*mmPad) / rangeY;
+    const mmScale = Math.min(scaleX, scaleY);
+    // Center of node bounding box maps to minimap center
+    const cxWorld = (mnX + mxX) / 2, cyWorld = (mnY + mxY) / 2;
+    const mmCX = mmX + mmW / 2, mmCY = mmY + mmH / 2;
+    const toMmX = (wx) => mmCX + (wx - cxWorld) * mmScale;
+    const toMmY = (wy) => mmCY + (wy - cyWorld) * mmScale;
+
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    // Background
+    ctx.fillStyle = "rgba(13,17,23,0.92)";
+    ctx.strokeStyle = "rgba(96,205,255,0.25)";
+    ctx.lineWidth = 1;
+    if (ctx.roundRect) ctx.roundRect(mmX, mmY, mmW, mmH, 4 * dprMm);
+    else ctx.rect(mmX, mmY, mmW, mmH);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(mmX, mmY, mmW, mmH, 4 * dprMm);
+    else ctx.rect(mmX, mmY, mmW, mmH);
+    ctx.clip();
+
+    // Edges
+    for (const n of nm.nodes) {
+      for (const nb of (n.dev.neighbors || [])) {
+        const t = nm.nodes.find(x => x.dev.ieee === nb.ieee || x.dev.device_ieee === nb.device_ieee);
+        if (!t) continue;
+        ctx.strokeStyle = "rgba(96,205,255,0.18)";
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(toMmX(n.x), toMmY(n.y));
+        ctx.lineTo(toMmX(t.x), toMmY(t.y));
+        ctx.stroke();
+      }
+    }
+    // Fallback: line to coordinator when no neighbor data
+    const hasNeighbors = nm.nodes.some(n => (n.dev.neighbors || []).length > 0);
+    if (!hasNeighbors) {
+      for (const n of nm.nodes) {
+        ctx.strokeStyle = "rgba(96,205,255,0.12)";
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(toMmX(0), toMmY(0));
+        ctx.lineTo(toMmX(n.x), toMmY(n.y));
+        ctx.stroke();
+      }
+    }
+    // Nodes
+    for (const n of nm.nodes) {
+      const lqi = _devLqi(n.dev);
+      ctx.fillStyle = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
+      ctx.beginPath();
+      ctx.arc(toMmX(n.x), toMmY(n.y), 2 * dprMm, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Coordinator
+    ctx.fillStyle = "#60cdff";
+    ctx.beginPath();
+    ctx.arc(toMmX(0), toMmY(0), 3 * dprMm, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Viewport rect
+    const dprV = window.devicePixelRatio || 1;
+    const vpWorldLeft  = (-w/2 - nm.panX * dprV) / nm.zoom;
+    const vpWorldRight = ( w/2 - nm.panX * dprV) / nm.zoom;
+    const vpWorldTop   = (-h/2 - nm.panY * dprV) / nm.zoom;
+    const vpWorldBot   = ( h/2 - nm.panY * dprV) / nm.zoom;
+    ctx.strokeStyle = "rgba(96,205,255,0.7)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      toMmX(vpWorldLeft), toMmY(vpWorldTop),
+      (vpWorldRight - vpWorldLeft) * mmScale,
+      (vpWorldBot - vpWorldTop) * mmScale
+    );
+
+    // Label
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.font = `${8 * dprMm}px Segoe UI`;
+    ctx.textAlign = "left";
+    ctx.fillText("minimap", mmX + 3*dprMm, mmY + 9*dprMm);
+
+    ctx.restore();
+  }
+  ctx.textAlign = "center";
 }
 
 function _devLqi(dev) {
@@ -1409,7 +1521,16 @@ function initNetworkMap() {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.88;
+    const rect = canvas.getBoundingClientRect();
+    // Mouse position relative to canvas center (CSS pixels)
+    const mx = e.clientX - rect.left - rect.width / 2;
+    const my = e.clientY - rect.top - rect.height / 2;
+    const oldZoom = nm.zoom;
     nm.zoom = Math.max(0.2, Math.min(8, nm.zoom * factor));
+    const zRatio = nm.zoom / oldZoom;
+    // Keep the world point under the cursor stationary
+    nm.panX = mx * (1 - zRatio) + nm.panX * zRatio;
+    nm.panY = my * (1 - zRatio) + nm.panY * zRatio;
     renderNetworkMap();
   }, { passive: false });
 
@@ -1698,9 +1819,15 @@ const ZCL_HELP = {
 };
 
 async function loadDevHelperDevices() {
+  // Prefer already-fetched ZHA data (avoids extra WS round-trip)
+  if (state.zhaDevicesFull.length) {
+    state.devHelperDevices = state.zhaDevicesFull.filter(d => !d.is_coordinator);
+    renderDevHelperDevices();
+    return;
+  }
   try {
     const data = await api("api/zha-helper/devices");
-    state.devHelperDevices = data.items || [];
+    state.devHelperDevices = (data.items || []).filter(d => !d.is_coordinator);
     renderDevHelperDevices();
   } catch (e) {
     const host = $("devhelper-device-list");
@@ -1776,6 +1903,32 @@ async function loadDevHelperClusters(ieee) {
   if (!host) return;
   host.innerHTML = '<div class="row"><div class="entity-sub">Loading clusters...</div></div>';
 
+  // Use embedded endpoint/cluster data from zha/devices (already fetched)
+  const fullDev = state.zhaDevicesFull.find(d => d.ieee === ieee);
+  if (fullDev && fullDev.endpoints) {
+    const epMap = {};
+    for (const [epId, ep] of Object.entries(fullDev.endpoints)) {
+      const inClusters = (ep.in_clusters || []).map(cId => ({
+        id: cId,
+        name: ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`,
+        cluster_type: "in",
+      }));
+      const outClusters = (ep.out_clusters || []).map(cId => ({
+        id: cId,
+        name: ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`,
+        cluster_type: "out",
+      }));
+      epMap[epId] = {
+        endpoint_id: parseInt(epId, 10) || 1,
+        in_clusters: inClusters,
+        out_clusters: outClusters,
+      };
+    }
+    renderDevHelperClusters(ieee, epMap);
+    return;
+  }
+
+  // Fallback: fetch from API (uses zha/devices/clusters WS command)
   try {
     const data = await api(`api/zha-helper/clusters/${encodeURIComponent(ieee)}`);
     renderDevHelperClusters(ieee, data);
@@ -2303,6 +2456,25 @@ async function addBatteryAlert() {
   await load();
 }
 
+/* ---------- ZHA Health Banner ---------- */
+function renderZhaHealth() {
+  const banner = $("zha-health-banner");
+  if (!banner) return;
+  const issues = state.zhaHealthIssues || [];
+  if (!issues.length) {
+    banner.style.display = "none";
+    return;
+  }
+  banner.style.display = "flex";
+  banner.innerHTML =
+    `<i class="mdi mdi-alert" style="color:var(--accent);margin-right:8px;flex-shrink:0"></i>` +
+    `<div><strong style="color:var(--accent)">ZHA Configuration Issues detected:</strong>` +
+    `<ul style="margin:2px 0 0 16px;padding:0">` +
+    issues.map(i => `<li>${escapeHtml(i)}</li>`).join("") +
+    `</ul></div>` +
+    `<button style="margin-left:auto;flex-shrink:0" onclick="this.parentElement.style.display='none'" title="Dismiss">\u00D7</button>`;
+}
+
 /* ---------- Main data load ---------- */
 async function load() {
   if (state.loading) return;
@@ -2321,6 +2493,7 @@ async function load() {
     state.telemetryEvents = d.telemetry?.events || [];
     state.commandLog = d.command_log || [];
     state.zhaDevicesFull = d.zha_devices_full || [];
+    state.zhaHealthIssues = d.zha_health_issues || [];
     // Merge new errors; deduplicate by ts+type+ieee
     const prevKeys = new Set(state.zigbeeErrorLog.map(e => `${e.ts}|${e.type}|${e.ieee}`));
     for (const e of (d.zigbee_error_log || [])) {
@@ -2342,6 +2515,7 @@ async function load() {
     renderBatteryAlerts(state.batteryAlerts);
     renderNetworkMap();
     renderZigbeeLogs();
+    renderZhaHealth();
 
     if (d.runtime?.last_error) {
       setStatus(`Error: ${d.runtime.last_error}`, true);
