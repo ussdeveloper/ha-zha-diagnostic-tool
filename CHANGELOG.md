@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.7] - 2026-02-26
+
+### Added
+- Unavailable ZHA devices popup window — click the health banner link to see details (name, IEEE, model, type).
+- Battery Monitor notify entity is now a `<select>` dropdown sourced from all `notify.*` entities.
+
+### Fixed
+- Static file caching: replaced `add_static` with a custom handler that always returns HTTP 200 with `no-cache, no-store` headers, eliminating stale UI after add-on updates.
+
 ## [0.10.6] - 2026-02-26
 
 ### Improved

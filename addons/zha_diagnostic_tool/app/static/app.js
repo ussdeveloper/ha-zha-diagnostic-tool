@@ -25,6 +25,7 @@ const state = {
   zigbeeLogsPaused: false,
   zhaDevicesFull: [],
   zhaHealthIssues: [],
+  unavailableDevices: [],
   iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
   batterySelected: new Set(),
   entityShortcuts: JSON.parse(localStorage.getItem("zha_entity_shortcuts") || "[]"),
@@ -3196,9 +3197,53 @@ function renderZhaHealth() {
     `<i class="mdi mdi-alert" style="color:var(--accent);margin-right:8px;flex-shrink:0"></i>` +
     `<div><strong style="color:var(--accent)">ZHA Configuration Issues detected:</strong>` +
     `<ul style="margin:2px 0 0 16px;padding:0">` +
-    issues.map(i => `<li>${escapeHtml(i)}</li>`).join("") +
+    issues.map(i => {
+      if (/\d+ Zigbee device\(s\) are currently unavailable/.test(i)) {
+        return `<li><a href="#" onclick="event.preventDefault();openUnavailDevicesWin()" class="banner-link">${escapeHtml(i)}</a></li>`;
+      }
+      return `<li>${escapeHtml(i)}</li>`;
+    }).join("") +
     `</ul></div>` +
     `<button style="margin-left:auto;flex-shrink:0" onclick="this.parentElement.style.display='none'" title="Dismiss">\u00D7</button>`;
+}
+
+function openUnavailDevicesWin() {
+  const devs = state.unavailableDevices || [];
+  const body = $("unavail-devs-body");
+  if (body) {
+    body.innerHTML = devs.length === 0
+      ? '<div class="entity-sub" style="padding:12px">No unavailable devices data</div>'
+      : devs.map(d => {
+          const lqiHtml = d.lqi != null
+            ? `<span class="entity-sub" style="white-space:nowrap"> \u00B7 LQI ${d.lqi}</span>` : "";
+          const modelHtml = d.model ? ` \u00B7 <span class="entity-sub">${escapeHtml(d.model)}</span>` : "";
+          return `<div class="row" style="padding:5px 10px;gap:8px;align-items:start">
+            <i class="mdi mdi-wifi-off" style="color:#ff6b6b;flex-shrink:0;margin-top:2px"></i>
+            <div style="flex:1;min-width:0">
+              <div class="entity-title">${escapeHtml(d.name)}</div>
+              <div class="entity-sub">${escapeHtml(d.ieee)}${modelHtml}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;white-space:nowrap">
+              <span class="entity-sub">${escapeHtml(d.device_type || "")}</span>${lqiHtml}
+            </div>
+          </div>`;
+        }).join("");
+  }
+  WM.open("unavail-devs-win");
+}
+
+function populateNotifySelect() {
+  const sel = $("battery-notify-entity");
+  if (!sel || sel.tagName !== "SELECT") return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select notify entity —</option>' +
+    (state.notifyEntities || []).map(e => {
+      const label = e.friendly_name && e.friendly_name !== e.entity_id
+        ? `${escapeHtml(e.friendly_name)} (${escapeHtml(e.entity_id)})`
+        : escapeHtml(e.entity_id);
+      return `<option value="${escapeHtml(e.entity_id)}">${label}</option>`;
+    }).join("");
+  if (prev) sel.value = prev;
 }
 
 /* ---------- Main data load ---------- */
@@ -3220,6 +3265,7 @@ async function load() {
     state.commandLog = d.command_log || [];
     state.zhaDevicesFull = d.zha_devices_full || [];
     state.zhaHealthIssues = d.zha_health_issues || [];
+    state.unavailableDevices = d.unavailable_devices || [];
     // Merge new errors; deduplicate by ts+type+ieee
     const prevKeys = new Set(state.zigbeeErrorLog.map(e => `${e.ts}|${e.type}|${e.ieee}`));
     for (const e of (d.zigbee_error_log || [])) {
@@ -3245,6 +3291,7 @@ async function load() {
     state.folders.forEach(f => refreshFolderWindow(f.id));
     renderZigbeeLogs();
     renderZhaHealth();
+    populateNotifySelect();
 
     if (d.runtime?.last_error) {
       setStatus(`Error: ${d.runtime.last_error}`, true);
@@ -3279,12 +3326,6 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   initAutocomplete("sensor-switch", "sensor-switch-list", () =>
     state.switchItems.map((s) => s.entity_id)
-  );
-  initAutocomplete("battery-notify-entity", "battery-notify-entity-list", () =>
-    state.notifyEntities.map((e) => ({
-      label: e.friendly_name ? `${e.friendly_name} (${e.entity_id})` : e.entity_id,
-      value: e.entity_id,
-    }))
   );
 
   /* Refresh button */

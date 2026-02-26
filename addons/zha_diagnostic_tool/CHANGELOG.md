@@ -1,5 +1,14 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.11] - 2026-02-26
+
+### Added
+- **Unavailable devices popup**: clicking the “N Zigbee device(s) are currently unavailable” link in the ZHA health banner now opens a dedicated window listing each offline device with name, IEEE address, model and device type.
+- **Battery Monitor — mobile device dropdown**: the notify entity selector is now a proper `<select>` dropdown populated from all discovered `notify.*` HA entities; no manual typing needed.
+
+### Fixed
+- **UI cache after add-on update**: replaced aiohttp’s built-in `add_static` (which can return HTTP 304 cached responses) with a custom file handler that never sends 304 and always includes `Cache-Control: no-cache, no-store, must-revalidate` headers. Browser now always loads fresh files after an add-on update without needing to reinstall.
+
 ## [0.9.10] - 2026-02-26
 
 ### Improved

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=0910" />
+  <link rel="stylesheet" href="static/styles.css?v=0911" />
 </head>
 <body>
 
@@ -264,10 +264,9 @@
           <span class="meta">Alert threshold:</span>
           <input id="battery-threshold" type="number" min="0" max="100" value="20" style="width:60px" />
           <span class="meta">%</span>
-          <div class="autocomplete-wrap" style="min-width:200px">
-            <input id="battery-notify-entity" class="autocomplete-input" placeholder="Notify entity (phone)..." autocomplete="off" />
-            <div class="autocomplete-list" id="battery-notify-entity-list"></div>
-          </div>
+          <select id="battery-notify-entity" style="min-width:200px">
+            <option value="">&#8212; select notify entity &#8212;</option>
+          </select>
           <button class="accent" id="save-battery-alert-btn"><i class="mdi mdi-bell-plus"></i> Save Alert</button>
         </div>
         <div id="battery-alerts-list" class="list" style="max-height:80px;flex:none"></div>
@@ -359,6 +358,21 @@
       <div class="resize-handle"></div>
     </section>
 
+    <!-- Unavailable ZHA Devices -->
+    <section class="window" id="unavail-devs-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-wifi-off win-icon" style="color:#ff6b6b"></i>
+        <span class="win-title">Unavailable Zigbee Devices</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body" id="unavail-devs-body" style="overflow-y:auto;padding:4px 0"></div>
+      <div class="resize-handle"></div>
+    </section>
+
   </div>
 
   <!-- ===== ZHA HEALTH ALERT BANNER ===== -->
@@ -422,6 +436,6 @@
     </div>
   </div>
 
-  <script src="static/app.js?v=0910"></script>
+  <script src="static/app.js?v=0911"></script>
 </body>
 </html>

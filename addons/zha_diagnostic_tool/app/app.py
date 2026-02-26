@@ -83,6 +83,8 @@ class DiagnosticRuntime:
         self.zigbee_error_log: deque[dict[str, Any]] = deque(maxlen=500)
         # Health issues detected from ZHA state
         self.zha_health_issues: list[str] = []
+        # Unavailable device details for popup
+        self.unavailable_devices: list[dict[str, Any]] = []
 
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
@@ -364,6 +366,16 @@ class DiagnosticRuntime:
                         "Check device power and range."
                     )
                 self.zha_health_issues = issues
+                self.unavailable_devices = [
+                    {
+                        "name": d.get("user_given_name") or d.get("name") or d.get("ieee", "?"),
+                        "ieee": d.get("ieee", "?"),
+                        "lqi": d.get("lqi"),
+                        "model": d.get("model") or d.get("model_id") or "",
+                        "device_type": d.get("device_type", ""),
+                    }
+                    for d in unavailable
+                ]
         except Exception as exc:  # noqa: BLE001
             LOGGER.debug("ZHA map fetch error: %s", exc)
 
@@ -790,6 +802,7 @@ class DiagnosticRuntime:
             "zha_devices_full": self.zha_devices_full,
             "zigbee_error_log": list(self.zigbee_error_log)[-200:],
             "zha_health_issues": self.zha_health_issues,
+            "unavailable_devices": self.unavailable_devices,
         }
 
     def _command_success_rate(self) -> float | None:
@@ -879,9 +892,52 @@ async def get_zha_network(_: web.Request) -> web.Response:
     return web.json_response({"items": runtime.zha_devices_full})
 
 
-async def index(_: web.Request) -> web.FileResponse:
-    resp = web.FileResponse(STATIC_DIR / "index.html")
+_STATIC_DIR_RESOLVED = STATIC_DIR.resolve()
+_STATIC_MIME: dict[str, str] = {
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+}
+_TEXT_PREFIXES = ("text/", "application/javascript", "application/json")
+
+
+async def static_file(request: web.Request) -> web.Response:
+    """Custom static file handler — never returns 304, always sets no-cache headers."""
+    filename = request.match_info.get("filename", "")
+    if ".." in filename:
+        raise web.HTTPForbidden()
+    try:
+        filepath = (_STATIC_DIR_RESOLVED / filename).resolve()
+        filepath.relative_to(_STATIC_DIR_RESOLVED)
+    except (ValueError, OSError):
+        raise web.HTTPForbidden()
+    if not filepath.is_file():
+        raise web.HTTPNotFound()
+    ct = _STATIC_MIME.get(filepath.suffix.lower(), "application/octet-stream")
+    charset = "utf-8" if any(ct.startswith(p) for p in _TEXT_PREFIXES) else None
+    resp = web.Response(body=filepath.read_bytes(), content_type=ct, charset=charset)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
+async def index(_: web.Request) -> web.Response:
+    resp = web.Response(
+        body=(STATIC_DIR / "index.html").read_bytes(),
+        content_type="text/html",
+        charset="utf-8",
+    )
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
     return resp
 
 
@@ -1266,7 +1322,7 @@ def create_app() -> web.Application:
 
     app = web.Application(middlewares=[no_cache_middleware])
     app.router.add_get("/", index)
-    app.router.add_static("/static", str(STATIC_DIR), show_index=False)
+    app.router.add_get("/static/{filename:.+}", static_file)
 
     app.router.add_get("/api/dashboard", dashboard)
     app.router.add_get("/api/zigbee-devices", get_zigbee_devices)

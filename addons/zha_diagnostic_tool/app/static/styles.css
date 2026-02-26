@@ -1100,6 +1100,8 @@ button.danger:hover { background: #a62115; }
 .zha-health-banner ul { font-size: 12px; color: var(--text-sec); }
 .zha-health-banner button { background: transparent; border: none; color: var(--text-sec); font-size: 16px; cursor: pointer; padding: 0 4px; }
 .zha-health-banner button:hover { color: var(--text); }
+.banner-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.banner-link:hover { opacity: 0.8; }
 
 /* ===== Log Textarea ===== */
 .log-textarea {
