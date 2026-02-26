@@ -81,6 +81,8 @@ class DiagnosticRuntime:
         self.zha_devices_full: list[dict[str, Any]] = []
         # Zigbee error log: timeout, not_delivered, link failures
         self.zigbee_error_log: deque[dict[str, Any]] = deque(maxlen=500)
+        # Full zigbee activity log: ALL zha_events + zigbee state changes + system log
+        self.zigbee_full_log: deque[dict[str, Any]] = deque(maxlen=2000)
         # Health issues detected from ZHA state
         self.zha_health_issues: list[str] = []
         # Unavailable device details for popup
@@ -360,7 +362,7 @@ class DiagnosticRuntime:
                     d for d in all_devs
                     if not d.get("is_coordinator") and d.get("available") is False
                 ]
-                if len(unavailable) >= 3:
+                if len(unavailable) >= 1:
                     issues.append(
                         f"{len(unavailable)} Zigbee device(s) are currently unavailable. "
                         "Check device power and range."
@@ -465,10 +467,21 @@ class DiagnosticRuntime:
         category = "other"
         if event_name == "zha_event":
             category = "zha"
-            # Track Zigbee errors: timeout, not_delivered, lqi drop
             zha_cmd = str(event_data.get("command", "")).lower()
             zha_ieee = str(event_data.get("device_ieee", ""))
             zha_lqi = event_data.get("lqi")
+
+            # Log ALL zha_events to full log
+            self.zigbee_full_log.append({
+                "ts": now.isoformat(),
+                "type": "zha_event",
+                "subtype": zha_cmd or "event",
+                "ieee": zha_ieee,
+                "lqi": zha_lqi,
+                "raw": json.dumps(event_data, ensure_ascii=False)[:400],
+            })
+
+            # Track Zigbee errors: timeout, not_delivered, lqi drop
             is_error = False
             error_type = ""
             if "timeout" in zha_cmd or event_data.get("timed_out"):
@@ -491,26 +504,55 @@ class DiagnosticRuntime:
                 })
         elif event_name == "state_changed":
             category = "state"
+            # Log zigbee/zha entity state changes to full log
+            entity_id = str(event_data.get("entity_id", ""))
+            if any(kw in entity_id for kw in ("zha", "zigbee")):
+                new_state = event_data.get("new_state", {})
+                old_state = event_data.get("old_state", {})
+                self.zigbee_full_log.append({
+                    "ts": now.isoformat(),
+                    "type": "state_changed",
+                    "subtype": entity_id,
+                    "ieee": "",
+                    "lqi": None,
+                    "raw": json.dumps({
+                        "entity_id": entity_id,
+                        "old": old_state.get("state") if old_state else None,
+                        "new": new_state.get("state") if new_state else None,
+                        "attributes": {k: v for k, v in (new_state.get("attributes", {}) or {}).items()
+                                       if k in ("friendly_name", "device_class", "unit_of_measurement")}
+                    }, ensure_ascii=False)[:400],
+                })
         elif event_name == "call_service":
             category = "call"
         elif event_name == "system_log_event":
             level = str(event_data.get("level", "")).lower()
             msg = str(event_data.get("message", "")).lower()
             # Capture zigbee-related log errors
-            if level in {"error", "warning", "critical"}:
-                if any(kw in msg for kw in ("zigbee", "zha", "bellows", "ezsp", "timeout", "not delivered", "delivery")):
+            if any(kw in msg for kw in ("zigbee", "zha", "bellows", "ezsp", "timeout", "not delivered", "delivery")):
+                raw_msg = (
+                    " ".join(event_data["message"])
+                    if isinstance(event_data.get("message"), list)
+                    else str(event_data.get("message", ""))
+                )[:300]
+                # All zigbee system logs go to full log
+                self.zigbee_full_log.append({
+                    "ts": now.isoformat(),
+                    "type": f"system_log",
+                    "subtype": level,
+                    "ieee": "",
+                    "lqi": None,
+                    "raw": raw_msg,
+                })
+                # Error/warning/critical also go to error log
+                if level in {"error", "warning", "critical"}:
                     self.zigbee_error_log.append({
                         "ts": now.isoformat(),
                         "type": f"log_{level}",
                         "ieee": "",
                         "command": "",
                         "lqi": None,
-                        # HA system_log_event sometimes has message as a list
-                        "raw": (
-                            " ".join(event_data["message"])
-                            if isinstance(event_data.get("message"), list)
-                            else str(event_data.get("message", ""))
-                        )[:300],
+                        "raw": raw_msg,
                     })
             category = "log_error" if level in {"error", "warning", "critical"} else "other"
 
@@ -801,6 +843,7 @@ class DiagnosticRuntime:
             "command_log": list(self.command_log)[-100:],
             "zha_devices_full": self.zha_devices_full,
             "zigbee_error_log": list(self.zigbee_error_log)[-200:],
+            "zigbee_full_log": list(self.zigbee_full_log)[-500:],
             "zha_health_issues": self.zha_health_issues,
             "unavailable_devices": self.unavailable_devices,
         }

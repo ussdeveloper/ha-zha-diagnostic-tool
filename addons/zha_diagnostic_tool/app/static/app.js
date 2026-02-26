@@ -1,4 +1,4 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.12) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.13) ===== */
 "use strict";
 
 /* ---------- i18n helpers ---------- */
@@ -43,6 +43,7 @@ const state = {
   devHelperSelected: null,
   devHelperKeepAlive: [],
   zigbeeErrorLog: [],
+  zigbeeFullLog: [],
   zigbeeLogsPaused: false,
   zhaDevicesFull: [],
   zhaHealthIssues: [],
@@ -248,6 +249,7 @@ const WM = {
     "devhelper-win":    { w: 820, h: 560, x: 140, y: 30  },
     "lights-win":       { w: 520, h: 440, x: 250, y: 115 },
     "zigbeelogs-win":   { w: 780, h: 520, x: 180, y: 40  },
+    "unavail-devs-win": { w: 600, h: 400, x: 220, y: 100 },
   },
 
   init() {
@@ -1366,10 +1368,10 @@ function renderNetworkMap() {
         vx: 0, vy: 0,
       };
     });
-    // Run force-directed iterations for better layout
-    for (let iter = 0; iter < 80; iter++) {
-      _forceStep(nm.nodes, dpr);
-    }
+    // Start animated force-directed settling
+    nm.animFrame = 0;
+    nm.settled = false;
+    _startForceAnimation();
   }
 
   // Draw edges — coordinator lives at world-space (0,0); dedup symmetric pairs
@@ -1668,6 +1670,32 @@ function renderNetworkMap() {
   ctx.textAlign = "center";
 }
 
+function _startForceAnimation() {
+  const nm = state.netMap;
+  if (nm._animId) cancelAnimationFrame(nm._animId);
+  nm.animFrame = 0;
+  nm.settled = false;
+
+  function tick() {
+    if (!nm.nodes || nm.settled) return;
+    const dpr = window.devicePixelRatio || 1;
+    // Run 3 iterations per frame for visible settling
+    for (let i = 0; i < 3; i++) _forceStep(nm.nodes, dpr);
+    nm.animFrame++;
+    renderNetworkMap();
+    // Check convergence: total velocity
+    let totalV = 0;
+    for (const n of nm.nodes) totalV += Math.abs(n.vx) + Math.abs(n.vy);
+    if (nm.animFrame > 120 || totalV < 0.5) {
+      nm.settled = true;
+      nm._animId = null;
+      return;
+    }
+    nm._animId = requestAnimationFrame(tick);
+  }
+  nm._animId = requestAnimationFrame(tick);
+}
+
 function _devLqi(dev) {
   if (dev.lqi != null) return dev.lqi;
   if (dev.link_quality != null) return dev.link_quality;
@@ -1828,7 +1856,7 @@ function initNetworkMap() {
 }
 
 /* ========================================================
-   ZIGBEE ERROR LOGS WINDOW
+   ZIGBEE LOGS WINDOW (Errors + Full Activity)
    ======================================================== */
 function renderZigbeeLogs() {
   if (state.zigbeeLogsPaused) return;
@@ -1841,21 +1869,31 @@ function renderZigbeeLogs() {
     lqi_critical: $("zbl-filter-lqi_critical")?.checked !== false,
     log_error: $("zbl-filter-log_error")?.checked !== false,
   };
+  // Mode: "all" shows full log, "errors" shows only error log
+  const mode = state.zigbeeLogsMode || "all";
 
-  const items = [...state.zigbeeErrorLog].reverse().filter(item => {
-    if (!filters[item.type] && !filters[item.type?.replace(/^log_/, "log_error")]) {
+  let items;
+  if (mode === "errors") {
+    items = [...state.zigbeeErrorLog].reverse().filter(item => {
       const baseType = item.type?.startsWith("log_") ? "log_error" : item.type;
       if (!filters[baseType]) return false;
-    }
-    if (q && !`${item.ieee || ""} ${item.type || ""} ${typeof item.raw === "string" ? item.raw : JSON.stringify(item.raw ?? "")}`.toLowerCase().includes(q)) return false;
-    return true;
-  });
+      if (q && !`${item.ieee || ""} ${item.type || ""} ${typeof item.raw === "string" ? item.raw : JSON.stringify(item.raw ?? "")}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  } else {
+    // Full log — show everything, apply search filter
+    items = [...state.zigbeeFullLog].reverse().filter(item => {
+      if (q && !`${item.ieee || ""} ${item.type || ""} ${item.subtype || ""} ${typeof item.raw === "string" ? item.raw : JSON.stringify(item.raw ?? "")}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
 
   host.innerHTML = "";
-  for (const item of items.slice(0, 300)) {
+  for (const item of items.slice(0, 500)) {
     const row = document.createElement("div");
-    const baseType = item.type?.startsWith("log_") ? "log_error" : item.type;
-    row.className = `row zbl-${baseType}`;
+    const isErr = ["timeout", "not_delivered", "lqi_critical"].includes(item.type) || item.type?.startsWith("log_");
+    const typeKey = item.type || "unknown";
+    row.className = `row ${isErr ? "zbl-" + (item.type?.startsWith("log_") ? "log_error" : item.type) : "zbl-event"}`;
     row.style.cursor = "pointer";
 
     const iconMap = {
@@ -1863,15 +1901,23 @@ function renderZigbeeLogs() {
       not_delivered: "mdi-message-off",
       lqi_critical: "mdi-signal-off",
       log_error: "mdi-alert",
+      log_warning: "mdi-alert",
+      log_critical: "mdi-alert-octagon",
+      zha_event: "mdi-zigbee",
+      state_changed: "mdi-swap-horizontal",
+      system_log: "mdi-console-line",
     };
-    const icon = iconMap[baseType] || "mdi-bug";
+    const icon = iconMap[typeKey] || (isErr ? "mdi-bug" : "mdi-information");
+
+    const labelParts = [typeKey];
+    if (item.subtype && item.subtype !== typeKey) labelParts.push(item.subtype);
 
     row.innerHTML =
       `<div style="flex:1;min-width:0">` +
-      `<div class="entity-title"><i class="mdi ${icon}"></i> ${escapeHtml(item.type || "unknown")}` +
+      `<div class="entity-title"><i class="mdi ${icon}"></i> ${escapeHtml(labelParts.join(" · "))}` +
       (item.ieee ? ` <span class="entity-sub" style="margin:0 0 0 6px">${escapeHtml(item.ieee)}</span>` : "") +
       `</div>` +
-      `<div class="entity-sub">${escapeHtml(String(item.raw ?? "").slice(0, 100))}</div>` +
+      `<div class="entity-sub">${escapeHtml(String(item.raw ?? "").slice(0, 120))}</div>` +
       `</div>` +
       `<div class="entity-sub" style="flex-shrink:0">${fmtDate(item.ts)}</div>`;
 
@@ -1888,16 +1934,27 @@ function renderZigbeeLogs() {
   }
 
   if (!items.length) {
-    host.innerHTML = '<div class="row"><div class="entity-sub">No Zigbee errors logged yet. Errors appear when ZHA reports timeouts, delivery failures or LQI drops.</div></div>';
+    const msg = mode === "errors"
+      ? "No Zigbee errors logged yet. Errors appear when ZHA reports timeouts, delivery failures or LQI drops."
+      : "No Zigbee activity logged yet. Events will appear as ZHA processes device communication.";
+    host.innerHTML = `<div class="row"><div class="entity-sub">${msg}</div></div>`;
   }
+
+  // Update mode toggle button states
+  const allBtn = $("zbl-mode-all");
+  const errBtn = $("zbl-mode-errors");
+  if (allBtn) allBtn.classList.toggle("active", mode === "all");
+  if (errBtn) errBtn.classList.toggle("active", mode === "errors");
 }
 
 function initZigbeeLogs() {
+  state.zigbeeLogsMode = "all"; // default to full log
   $("zigbeelogs-search")?.addEventListener("input", renderZigbeeLogs);
   ["zbl-filter-timeout","zbl-filter-not_delivered","zbl-filter-lqi_critical","zbl-filter-log_error"]
     .forEach(id => $(id)?.addEventListener("change", renderZigbeeLogs));
   $("zigbeelogs-clear-btn")?.addEventListener("click", () => {
     state.zigbeeErrorLog = [];
+    state.zigbeeFullLog = [];
     renderZigbeeLogs();
   });
   $("zigbeelogs-pause-btn")?.addEventListener("click", (e) => {
@@ -1907,6 +1964,15 @@ function initZigbeeLogs() {
       ? `<i class="mdi mdi-play"></i>`
       : `<i class="mdi mdi-pause"></i>`;
     btn.title = state.zigbeeLogsPaused ? "Resume" : "Pause";
+  });
+  // Mode toggle buttons (All Activity / Errors Only)
+  $("zbl-mode-all")?.addEventListener("click", () => {
+    state.zigbeeLogsMode = "all";
+    renderZigbeeLogs();
+  });
+  $("zbl-mode-errors")?.addEventListener("click", () => {
+    state.zigbeeLogsMode = "errors";
+    renderZigbeeLogs();
   });
 }
 
@@ -2673,8 +2739,69 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
   container.innerHTML = "";
   const zclCluster = ZCL_HELP[clusterId];
 
+  // "Read All" button
+  const toolbar = document.createElement("div");
+  toolbar.style.cssText = "display:flex;gap:6px;align-items:center;padding:2px 0 6px;border-bottom:1px solid var(--border);margin-bottom:4px";
+  const readAllBtn = document.createElement("button");
+  readAllBtn.innerHTML = '<i class="mdi mdi-download"></i> Read All';
+  readAllBtn.style.fontSize = "11px";
+  readAllBtn.addEventListener("click", async () => {
+    readAllBtn.disabled = true;
+    readAllBtn.textContent = "Reading...";
+    const inputs = container.querySelectorAll(".attr-row");
+    for (const row of inputs) {
+      const rb = row.querySelector("button");
+      if (rb && rb.textContent === "Read") rb.click();
+    }
+    readAllBtn.disabled = false;
+    readAllBtn.innerHTML = '<i class="mdi mdi-download"></i> Read All';
+  });
+  toolbar.appendChild(readAllBtn);
+
+  // Issue Command section
+  const cmdBtn = document.createElement("button");
+  cmdBtn.innerHTML = '<i class="mdi mdi-console"></i> Issue Command';
+  cmdBtn.style.fontSize = "11px";
+  cmdBtn.addEventListener("click", () => {
+    const cmdSection = container.querySelector(".cluster-cmd-section");
+    if (cmdSection) { cmdSection.style.display = cmdSection.style.display === "none" ? "" : "none"; return; }
+    const section = document.createElement("div");
+    section.className = "cluster-cmd-section";
+    section.style.cssText = "padding:6px 0;border-top:1px solid var(--border);margin-top:4px";
+    section.innerHTML =
+      `<div style="font-size:11px;color:var(--accent);margin-bottom:4px"><i class="mdi mdi-console"></i> Issue ZCL Command</div>` +
+      `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">` +
+      `<label style="font-size:11px">Command ID:</label>` +
+      `<input class="cmd-id-input" type="number" min="0" max="255" value="0" style="width:60px;font-size:12px;padding:3px 6px" />` +
+      `<label style="font-size:11px">Type:</label>` +
+      `<select class="cmd-type-select" style="font-size:11px;padding:3px">` +
+      `<option value="server">Server</option><option value="client">Client</option></select>` +
+      `<button class="cmd-send-btn" style="font-size:11px"><i class="mdi mdi-send"></i> Send</button>` +
+      `</div>`;
+    section.querySelector(".cmd-send-btn").addEventListener("click", async () => {
+      const cmdId = parseInt(section.querySelector(".cmd-id-input").value, 10);
+      const cmdType = section.querySelector(".cmd-type-select").value;
+      const btn = section.querySelector(".cmd-send-btn");
+      btn.disabled = true;
+      try {
+        await api("api/zha-helper/command", {
+          method: "POST",
+          body: JSON.stringify({ ieee, endpoint_id: endpointId, cluster_id: clusterId, cluster_type: clusterType, command: cmdId, command_type: cmdType }),
+        });
+        btn.innerHTML = '<i class="mdi mdi-check"></i> Sent';
+        setTimeout(() => { btn.innerHTML = '<i class="mdi mdi-send"></i> Send'; }, 1500);
+      } catch (e) {
+        alert(`Command error: ${e.message}`);
+      }
+      btn.disabled = false;
+    });
+    container.appendChild(section);
+  });
+  toolbar.appendChild(cmdBtn);
+  container.appendChild(toolbar);
+
   if (!attributes.length) {
-    container.innerHTML = '<div class="entity-sub">No attributes</div>';
+    container.appendChild(Object.assign(document.createElement("div"), { className: "entity-sub", textContent: "No attributes" }));
     return;
   }
 
@@ -2808,11 +2935,19 @@ function initContextMenu() {
   if (!menu) return;
 
   $("desktop").addEventListener("contextmenu", (e) => {
-    if (e.target.closest(".window")) return;
+    // Allow context menu inside folder windows, block other windows
+    const closestWin = e.target.closest(".window");
+    const folderWin = e.target.closest("[id^='folder-win-']");
+    if (closestWin && !folderWin) return;
     e.preventDefault();
 
     const clickedFolder        = e.target.closest(".desktop-folder");
     const clickedEntityShortcut = e.target.closest(".desktop-entity-shortcut");
+    // Detect if right-click is inside a folder window
+    const clickedFolderItem    = folderWin ? e.target.closest(".folder-icon-item") : null;
+    const insideFolderWin      = !!folderWin;
+    const folderWinId          = folderWin ? folderWin.id.replace("folder-win-", "") : null;
+
     const hasSel = state.desktopSelected.size > 0;
     const hasClip = state.desktopClipboard.length > 0;
 
@@ -2822,10 +2957,22 @@ function initContextMenu() {
     const copyPaste =
       `<div class="ctx-divider"></div>` +
       `<div class="ctx-item" data-action="copy-selected"><i class="mdi mdi-content-copy"></i> Copy${selLabel}</div>` +
-      `<div class="ctx-item${pasteDisabled}" data-action="paste"><i class="mdi mdi-content-paste"></i> Paste</div>`;
+      `<div class="ctx-item${pasteDisabled}" data-action="paste" ${folderWinId ? `data-target-folder="${escapeHtml(folderWinId)}"` : ""}><i class="mdi mdi-content-paste"></i> Paste${insideFolderWin ? " here" : ""}</div>`;
 
     menu.innerHTML = "";
-    if (clickedFolder) {
+    if (insideFolderWin && clickedFolderItem) {
+      // Right-clicked an entity inside a folder window
+      const eid = clickedFolderItem.title;
+      menu.innerHTML =
+        `<div class="ctx-item" data-action="folder-entity-open" data-eid="${escapeHtml(eid)}"><i class="mdi mdi-open-in-app"></i> Open</div>` +
+        `<div class="ctx-item" data-action="folder-entity-remove" data-eid="${escapeHtml(eid)}" data-fid="${escapeHtml(folderWinId)}"><i class="mdi mdi-minus-circle"></i> Remove from folder</div>` +
+        copyPaste;
+    } else if (insideFolderWin) {
+      // Right-clicked empty space inside a folder window
+      menu.innerHTML =
+        `<div class="ctx-item" data-action="folder-props" data-fid="${escapeHtml(folderWinId)}"><i class="mdi mdi-cog"></i> Properties</div>` +
+        copyPaste;
+    } else if (clickedFolder) {
       const fid = clickedFolder.dataset.folderId;
       menu.innerHTML =
         `<div class="ctx-item" data-action="folder-open"   data-fid="${escapeHtml(fid)}"><i class="mdi mdi-folder-open"></i> Open</div>` +
@@ -2861,6 +3008,7 @@ function initContextMenu() {
         const action = item.dataset.action;
         const fid    = item.dataset.fid;
         const eid    = item.dataset.eid;
+        const targetFolder = item.dataset.targetFolder;
         menu.classList.remove("open");
 
         if (action === "new-folder")     createFolder();
@@ -2868,6 +3016,19 @@ function initContextMenu() {
         else if (action === "folder-open")   openFolderWindow(fid);
         else if (action === "folder-props")  openFolderDialog(fid);
         else if (action === "folder-delete") deleteFolder(fid);
+        else if (action === "folder-entity-open") {
+          const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+          const entity = allItems.find(e => e.entity_id === eid);
+          if (entity) openDeviceDetail(entity);
+        }
+        else if (action === "folder-entity-remove") {
+          const folder = state.folders.find(f => f.id === fid);
+          if (folder) {
+            folder.entities = folder.entities.filter(e => e !== eid);
+            saveFolders();
+            refreshFolderWindow(fid);
+          }
+        }
         else if (action === "entity-open") {
           const sc = state.entityShortcuts.find(s => s.entity_id === eid);
           if (sc) openDeviceDetail(sc);
@@ -2881,6 +3042,7 @@ function initContextMenu() {
         }
         else if (action === "copy-selected") {
           state.desktopClipboard = [];
+          // Copy from desktop icons
           const d = $("desktop");
           d?.querySelectorAll(".desktop-shortcut.icon-selected, .desktop-folder.icon-selected").forEach(b => {
             if (b.classList.contains("desktop-entity-shortcut")) {
@@ -2890,22 +3052,51 @@ function initContextMenu() {
               state.desktopClipboard.push({ type: "window", key: b.dataset.win });
             }
           });
+          // Also copy entities from inside folder windows (folder-icon-item with .icon-selected or all if none selected)
+          if (folderWin) {
+            const selectedInFolder = folderWin.querySelectorAll(".folder-icon-item.icon-selected");
+            const items = selectedInFolder.length ? selectedInFolder : (clickedFolderItem ? [clickedFolderItem] : []);
+            items.forEach(fi => {
+              const eId = fi.title;
+              if (eId && !state.desktopClipboard.some(c => c.type === "entity" && c.data.entity_id === eId)) {
+                const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+                const entity = allItems.find(e => e.entity_id === eId);
+                state.desktopClipboard.push({ type: "entity", data: entity ? { ...entity } : { entity_id: eId } });
+              }
+            });
+          }
         }
         else if (action === "paste") {
-          const px = parseInt(menu.dataset.dropX) || 200;
-          const py = parseInt(menu.dataset.dropY) || 200;
-          state.desktopClipboard.forEach((item, i) => {
-            if (item.type === "entity") {
-              const sc  = { ...item.data, position: { x: px + i * 14, y: py + i * 14 } };
-              const idx = state.entityShortcuts.findIndex(s => s.entity_id === sc.entity_id);
-              if (idx >= 0) state.entityShortcuts[idx] = sc;
-              else state.entityShortcuts.push(sc);
-              state.iconPositions["entity_" + sc.entity_id] = sc.position;
+          if (targetFolder) {
+            // Paste into a folder
+            const folder = state.folders.find(f => f.id === targetFolder);
+            if (folder) {
+              state.desktopClipboard.forEach(item => {
+                const eid = item.type === "entity" ? item.data.entity_id : null;
+                if (eid && !folder.entities.includes(eid)) {
+                  folder.entities.push(eid);
+                }
+              });
+              saveFolders();
+              refreshFolderWindow(targetFolder);
             }
-          });
-          localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
-          localStorage.setItem("zha_icon_positions",   JSON.stringify(state.iconPositions));
-          renderEntityShortcuts();
+          } else {
+            // Paste on desktop
+            const px = parseInt(menu.dataset.dropX) || 200;
+            const py = parseInt(menu.dataset.dropY) || 200;
+            state.desktopClipboard.forEach((item, i) => {
+              if (item.type === "entity") {
+                const sc  = { ...item.data, position: { x: px + i * 14, y: py + i * 14 } };
+                const idx = state.entityShortcuts.findIndex(s => s.entity_id === sc.entity_id);
+                if (idx >= 0) state.entityShortcuts[idx] = sc;
+                else state.entityShortcuts.push(sc);
+                state.iconPositions["entity_" + sc.entity_id] = sc.position;
+              }
+            });
+            localStorage.setItem("zha_entity_shortcuts", JSON.stringify(state.entityShortcuts));
+            localStorage.setItem("zha_icon_positions",   JSON.stringify(state.iconPositions));
+            renderEntityShortcuts();
+          }
         }
       }, { once: true });
     });
@@ -3294,6 +3485,14 @@ async function load() {
       if (!prevKeys.has(k)) { state.zigbeeErrorLog.push(e); prevKeys.add(k); }
     }
     if (state.zigbeeErrorLog.length > 500) state.zigbeeErrorLog = state.zigbeeErrorLog.slice(-500);
+
+    // Merge full zigbee log
+    const prevFullKeys = new Set(state.zigbeeFullLog.map(e => `${e.ts}|${e.type}|${e.subtype}`));
+    for (const e of (d.zigbee_full_log || [])) {
+      const k = `${e.ts}|${e.type}|${e.subtype}`;
+      if (!prevFullKeys.has(k)) { state.zigbeeFullLog.push(e); prevFullKeys.add(k); }
+    }
+    if (state.zigbeeFullLog.length > 2000) state.zigbeeFullLog = state.zigbeeFullLog.slice(-2000);
 
     setSummary(d.summary || {});
     renderDelayChart(d.delay_samples || []);

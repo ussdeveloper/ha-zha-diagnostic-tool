@@ -1144,7 +1144,30 @@ button.danger:hover { background: #a62115; }
 .row.zbl-not_delivered .entity-title .mdi { color: #ff922b; }
 .row.zbl-lqi_critical .entity-title .mdi { color: var(--warn); }
 .row.zbl-log_error .entity-title .mdi { color: #da77f2; }
+.row.zbl-event .entity-title .mdi { color: var(--accent); }
 .row.zbl-selected { background: rgba(96,205,255,0.08); }
+
+.zbl-mode-toggle {
+  display: flex;
+  gap: 0;
+  flex-shrink: 0;
+}
+.zbl-mode-toggle button {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.zbl-mode-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.zbl-mode-toggle button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.zbl-mode-toggle button.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
 
 /* ===== Desktop icon drag mode ===== */
 .desktop-shortcut.dragging,

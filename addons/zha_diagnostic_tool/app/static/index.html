@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=0912" />
+  <link rel="stylesheet" href="static/styles.css?v=0913" />
 </head>
 <body>
 
@@ -342,6 +342,10 @@
       </div>
       <div class="window-body">
         <div class="zigbeelogs-toolbar">
+          <div class="zbl-mode-toggle">
+            <button id="zbl-mode-all" class="active" title="All Zigbee Activity"><i class="mdi mdi-format-list-bulleted"></i> All</button>
+            <button id="zbl-mode-errors" title="Errors Only"><i class="mdi mdi-alert"></i> Errors</button>
+          </div>
           <input id="zigbeelogs-search" placeholder="Search logs (IEEE, type, message)..." data-i18n-placeholder="ph.search_logs" />
           <div class="zbl-filters">
             <label class="checkbox"><input type="checkbox" id="zbl-filter-timeout" checked /> <span data-i18n="filter.timeout">Timeout</span></label>
@@ -436,7 +440,7 @@
     </div>
   </div>
 
-  <script src="static/locale.js?v=0912"></script>
-  <script src="static/app.js?v=0912"></script>
+  <script src="static/locale.js?v=0913"></script>
+  <script src="static/app.js?v=0913"></script>
 </body>
 </html>

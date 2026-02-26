@@ -1,5 +1,24 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.13] - 2026-02-27
+
+### Fixed
+- **Folder system**: context menu now works inside open folder windows — paste, remove entity, and open entity actions available.
+- **Copy/paste to folders**: pasting clipboard entities inside a folder window adds them to the folder instead of creating desktop shortcuts.
+- **Copy from folders**: copying entities from inside a folder window now captures them to clipboard.
+- **Unavailable devices popup**: health banner now triggers with ≥1 unavailable device (was ≥3), so the ZHA Issues banner and popup appear reliably.
+- **Unavailable devices window**: added missing WM.defaults entry for proper window sizing/positioning.
+
+### Added
+- **Network map animation**: force-directed layout now animates visually over ~120 frames via `requestAnimationFrame` instead of running 80 iterations synchronously. Nodes settle smoothly into position.
+- **Zigbee Logs — full activity mode**: new "All" / "Errors" toggle in the Zigbee Logs window. "All" mode shows every `zha_event`, zigbee `state_changed`, and zigbee-related `system_log_event` — not just errors.
+- **Backend full zigbee log**: new `zigbee_full_log` deque (max 2000 entries) captures ALL ZHA events, zigbee entity state changes, and zigbee system log events.
+- **Device Helper — Read All button**: reads all attributes in a cluster with one click.
+- **Device Helper — Issue Command**: inline ZCL command interface per cluster (command ID, server/client type, send button).
+
+### Changed
+- Cache-bust bumped to `?v=0913`.
+
 ## [0.9.12] - 2026-02-27
 
 ### Added

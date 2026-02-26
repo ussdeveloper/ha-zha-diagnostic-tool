@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.9] - 2026-02-27
+
+### Fixed
+- Folder system: context menu, copy/paste, and entity management now work inside open folder windows.
+- Unavailable devices health banner triggers at ≥1 device (was ≥3); popup window has proper WM sizing.
+
+### Added
+- Network map animated force-directed layout — nodes settle smoothly over ~120 frames.
+- Zigbee Logs "All Activity" mode showing every ZHA event, zigbee state change, and system log entry.
+- Device Helper "Read All" and "Issue Command" buttons per cluster.
+
 ## [0.10.8] - 2026-02-27
 
 ### Added
