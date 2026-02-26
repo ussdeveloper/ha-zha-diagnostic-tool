@@ -1305,10 +1305,16 @@ function renderNetworkMap() {
   ctx.translate(w / 2 + nm.panX * dpr, h / 2 + nm.panY * dpr);
   ctx.scale(nm.zoom, nm.zoom);
 
-  // Use full ZHA device list — filter out the coordinator (drawn separately as HUB)
-  const devices = state.zhaDevicesFull.length
-    ? state.zhaDevicesFull.filter(d => !d.is_coordinator)
-    : [];
+  // Use full ZHA device list — filter coordinator (drawn as HUB at origin) and dedup by IEEE
+  const _seenIeee = new Set();
+  const devices = state.zhaDevicesFull
+    .filter(d => !d.is_coordinator && d.device_type !== "Coordinator")
+    .filter(d => {
+      const k = d.ieee;
+      if (!k || _seenIeee.has(k)) return false;
+      _seenIeee.add(k);
+      return true;
+    });
 
   if (!devices.length) {
     ctx.restore();
@@ -1320,7 +1326,9 @@ function renderNetworkMap() {
   }
 
   // Build nodes with stable layout positions (force-directed seed)
-  if (!nm.nodes || nm.nodes.length !== devices.length) {
+  const _devIds = devices.map(d => d.ieee || "?").join(",");
+  if (!nm.nodes || nm.nodesKey !== _devIds) {
+    nm.nodesKey = _devIds;
     const count = devices.length;
     const angleStep = (2 * Math.PI) / Math.max(count, 1);
     nm.nodes = devices.map((dev, i) => {
@@ -1342,43 +1350,49 @@ function renderNetworkMap() {
     }
   }
 
-  // Draw edges (lines between devices and coordinator / using neighbours if available)
+  // Draw edges — coordinator lives at world-space (0,0); dedup symmetric pairs
+  const _coordDev = state.zhaDevicesFull.find(d => d.is_coordinator || d.device_type === "Coordinator");
+  const _drawnEdges = new Set();
   for (const node of nm.nodes) {
     const lqi = _devLqi(node.dev);
     const lineColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
     const neighbors = node.dev.neighbors || [];
     if (neighbors.length) {
       for (const nb of neighbors) {
-        const target = nm.nodes.find(n =>
-          (n.dev.ieee === nb.ieee) || (n.dev.device_ieee === nb.device_ieee)
-        );
-        if (!target) continue;
+        const nbIeee = nb.ieee || nb.ieee_address;
+        if (!nbIeee) continue;
+        const edgeKey = [node.dev.ieee, nbIeee].sort().join("|");
+        if (_drawnEdges.has(edgeKey)) continue;
+        _drawnEdges.add(edgeKey);
+        const isCoordTarget = _coordDev?.ieee === nbIeee;
+        const target = isCoordTarget ? null : nm.nodes.find(n => n.dev.ieee === nbIeee && n !== node);
+        if (!target && !isCoordTarget) continue;
+        const tx = isCoordTarget ? 0 : target.x;
+        const ty = isCoordTarget ? 0 : target.y;
         const nbLqi = nb.lqi ?? 128;
-        const edgeColor = nbLqi > 180 ? "rgba(108,203,95,0.35)"
-          : nbLqi > 100 ? "rgba(252,225,0,0.3)"
-          : "rgba(255,107,107,0.25)";
+        const edgeColor = nbLqi > 180 ? "rgba(108,203,95,0.45)"
+          : nbLqi > 100 ? "rgba(252,225,0,0.35)"
+          : "rgba(255,107,107,0.28)";
         ctx.strokeStyle = edgeColor;
-        ctx.lineWidth = (nbLqi > 180 ? 1.5 : 0.8) * dpr;
+        ctx.lineWidth = (nbLqi > 180 ? 1.8 : nbLqi > 100 ? 1.2 : 0.8) * dpr;
         ctx.setLineDash(nbLqi > 180 ? [] : [4*dpr, 4*dpr]);
         ctx.beginPath();
         ctx.moveTo(node.x, node.y);
-        ctx.lineTo(target.x, target.y);
+        ctx.lineTo(tx, ty);
         ctx.stroke();
         ctx.setLineDash([]);
       }
     } else {
-      // Fallback: line to coordinator
-      ctx.globalAlpha = 0.4;
+      // Fallback: line to coordinator (device has no neighbor data yet)
+      ctx.globalAlpha = 0.35;
       ctx.strokeStyle = lineColor;
-      ctx.lineWidth = (lqi > 180 ? 1.8 : 1) * dpr;
+      ctx.lineWidth = (lqi > 180 ? 1.5 : 1) * dpr;
       ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(node.x, node.y);
       ctx.stroke();
       ctx.globalAlpha = 1;
-
-      // LQI label on line midpoint
       if (lqi != null) {
         ctx.fillStyle = lineColor;
         ctx.font = `${8.5 * dpr}px Segoe UI`;
@@ -1524,13 +1538,18 @@ function renderNetworkMap() {
     // Edges
     for (const n of nm.nodes) {
       for (const nb of (n.dev.neighbors || [])) {
-        const t = nm.nodes.find(x => x.dev.ieee === nb.ieee || x.dev.device_ieee === nb.device_ieee);
-        if (!t) continue;
-        ctx.strokeStyle = "rgba(96,205,255,0.18)";
+        const nbIeee = nb.ieee || nb.ieee_address;
+        if (!nbIeee) continue;
+        const isCoordNb = _coordDev?.ieee === nbIeee;
+        const t = isCoordNb ? null : nm.nodes.find(x => x.dev.ieee === nbIeee && x !== n);
+        if (!t && !isCoordNb) continue;
+        const tX = isCoordNb ? 0 : t.x;
+        const tY = isCoordNb ? 0 : t.y;
+        ctx.strokeStyle = "rgba(96,205,255,0.22)";
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(toMmX(n.x), toMmY(n.y));
-        ctx.lineTo(toMmX(t.x), toMmY(t.y));
+        ctx.lineTo(toMmX(tX), toMmY(tY));
         ctx.stroke();
       }
     }
@@ -1618,7 +1637,9 @@ function _forceStep(nodes, dpr) {
     // Attraction to neighbors
     const neighbors = a.dev.neighbors || [];
     for (const nb of neighbors) {
-      const target = nodes.find(n => n.dev.ieee === nb.ieee || n.dev.device_ieee === nb.device_ieee);
+      const nbIeee = nb.ieee || nb.ieee_address;
+      if (!nbIeee) continue;
+      const target = nodes.find(n => n.dev.ieee === nbIeee && n !== a);
       if (!target) continue;
       const dx = target.x - a.x, dy = target.y - a.y;
       a.vx += dx * attract;
@@ -1718,10 +1739,28 @@ function initNetworkMap() {
       }
       openDeviceDetail(entity);
     } else {
-      nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
+      nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null; nm.nodesKey = null;
       renderNetworkMap();
     }
   });
+
+  // Scan Network button — forces fresh ZHA topology fetch then redraws
+  const scanBtn = $("netmap-scan-btn");
+  if (scanBtn) {
+    scanBtn.addEventListener("click", async () => {
+      scanBtn.disabled = true;
+      scanBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Scanning\u2026';
+      try {
+        await fetch("api/network-scan", { method: "POST" });
+        nm.nodes = null; nm.nodesKey = null;
+        renderNetworkMap();
+      } catch (_) { /* ignore */ }
+      finally {
+        scanBtn.disabled = false;
+        scanBtn.innerHTML = '<i class="mdi mdi-radar"></i> Scan Network';
+      }
+    });
+  }
 }
 
 /* ========================================================

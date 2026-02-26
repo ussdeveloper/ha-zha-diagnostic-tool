@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.3] - 2026-02-25
+
+### Fixed
+- Network Map: neighbor matching bug (undefined === undefined matched all nodes), coordinator edges now visible, duplicate edges deduplicated, stale layout after device changes fixed, force-directed attraction fixed, minimap edges fixed.
+
+### Added
+- Network Map: "Scan Network" button forces immediate ZHA topology fetch.
+- Backend: `POST /api/network-scan` endpoint.
+
 ## [0.10.2] - 2026-02-24
 
 ### Added

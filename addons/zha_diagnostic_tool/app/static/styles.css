@@ -888,7 +888,16 @@ button.danger:hover { background: #a62115; }
 }
 
 /* ===== Network Map ===== */
-.netmap-body { padding: 0 !important; overflow: hidden; }
+.netmap-body { padding: 0 !important; overflow: hidden; position: relative; }
+.netmap-scan-btn {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  background: rgba(0,100,200,0.72); color: #fff;
+  border: 1px solid rgba(96,205,255,0.35); border-radius: 6px;
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+  backdrop-filter: blur(6px); transition: background 0.15s;
+}
+.netmap-scan-btn:hover { background: rgba(0,120,220,0.9); }
+.netmap-scan-btn:disabled { opacity: 0.5; cursor: default; }
 #netmap-canvas {
   width: 100%; height: 100%;
   display: block;

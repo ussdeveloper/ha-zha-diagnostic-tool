@@ -1000,6 +1000,13 @@ async def refresh_now(_: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def network_scan(_: web.Request) -> web.Response:
+    """Force an immediate ZHA device+topology fetch, bypassing the 60-second cooldown."""
+    runtime._last_zha_map_ts = 0
+    await runtime._maybe_fetch_zha_map()
+    return web.json_response({"ok": True, "devices": len(runtime.zha_devices_full)})
+
+
 # ---- Battery alerts CRUD ----
 
 async def get_battery_alerts(_: web.Request) -> web.Response:
@@ -1268,6 +1275,7 @@ def create_app() -> web.Application:
 
     app.router.add_post("/api/switch-action", switch_action)
     app.router.add_post("/api/refresh", refresh_now)
+    app.router.add_post("/api/network-scan", network_scan)
 
     app.router.add_get("/api/zigbee-logs", get_zigbee_logs)
     app.router.add_get("/api/zha-network", get_zha_network)

@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.7] - 2026-02-25
+
+### Fixed
+- **Network Map — neighbor matching bug**: The previous `(n.dev.device_ieee === nb.device_ieee)` condition compared two `undefined` values, causing every edge to point to the first node in the list. Fixed to use `nb.ieee || nb.ieee_address` for correct neighbor lookup (compatible with both older and newer ZHA/zigpy field names).
+- **Network Map — coordinator edges missing**: Connections from devices to the Zigbee coordinator (the central HUB) were silently dropped because the coordinator was filtered out of the node list. Edges to coordinator now draw correctly to world (0,0).
+- **Network Map — duplicate edges**: When device A listed device B as neighbor and vice versa, two overlapping lines were drawn. Edges are now deduplicated by sorted IEEE pair.
+- **Network Map — duplicate nodes**: Added IEEE-based deduplication of devices before building the node list. Also checks `device_type === "Coordinator"` in addition to `is_coordinator`.
+- **Network Map — stale layout after data change**: Node layout was only rebuilt when the device count changed. Now tracks device IEEE fingerprint (`nodesKey`) so the layout properly rebuilds when devices are added/removed.
+- **Network Map — force-directed layout**: `_forceStep()` had the same undefined neighbor matching bug, causing incorrect topology-based attraction forces. Fixed.
+- **Network Map — minimap edge matching**: Minimap edge drawing had the same `device_ieee` undefined bug. Fixed with same approach; coordinator edges also shown in minimap.
+
+### Added
+- **Network Map — Scan Network button**: "Scan Network" button overlaid on the map canvas. Clicking it forces an immediate ZHA device fetch (bypassing the 60-second cooldown) and rebuilds the topology layout.
+- **Backend — `/api/network-scan` endpoint**: `POST /api/network-scan` resets the ZHA map cooldown timer and triggers `_maybe_fetch_zha_map()` immediately.
+
 ## [0.9.2] - 2026-02-24
 
 ### Added
