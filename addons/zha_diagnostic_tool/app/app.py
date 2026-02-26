@@ -506,14 +506,33 @@ class DiagnosticRuntime:
             category = "state"
             # Log zigbee/zha entity state changes to full log
             entity_id = str(event_data.get("entity_id", ""))
-            if any(kw in entity_id for kw in ("zha", "zigbee")):
+            # Check if entity belongs to a known ZHA device
+            _known_zigbee_eids = {e["entity_id"] for e in self.zigbee_entities}
+            _known_switch_eids = {e["entity_id"] for e in self.switch_entities if e.get("device_ieee")}
+            is_zigbee = (
+                entity_id in _known_zigbee_eids
+                or entity_id in _known_switch_eids
+                or any(kw in entity_id for kw in ("zha", "zigbee"))
+            )
+            if is_zigbee:
                 new_state = event_data.get("new_state", {})
                 old_state = event_data.get("old_state", {})
+                dev_ieee = ""
+                # Try to find device IEEE from known entities
+                for ent in self.zigbee_entities:
+                    if ent["entity_id"] == entity_id:
+                        dev_ieee = ent.get("device_ieee", "")
+                        break
+                if not dev_ieee:
+                    for ent in self.switch_entities:
+                        if ent["entity_id"] == entity_id:
+                            dev_ieee = ent.get("device_ieee", "")
+                            break
                 self.zigbee_full_log.append({
                     "ts": now.isoformat(),
                     "type": "state_changed",
                     "subtype": entity_id,
-                    "ieee": "",
+                    "ieee": dev_ieee,
                     "lqi": None,
                     "raw": json.dumps({
                         "entity_id": entity_id,
@@ -1222,6 +1241,27 @@ async def zha_read_attribute(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def get_zha_cluster_commands(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    endpoint_id = int(body.get("endpoint_id", 1))
+    cluster_id = int(body.get("cluster_id", 0))
+    cluster_type = str(body.get("cluster_type", "in"))
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/devices/clusters/commands",
+            "ieee": ieee,
+            "endpoint_id": endpoint_id,
+            "cluster_id": cluster_id,
+            "cluster_type": cluster_type,
+        })
+        if resp.get("success"):
+            return web.json_response({"commands": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def zha_write_attribute(request: web.Request) -> web.Response:
     body = await request.json()
     ieee = str(body.get("ieee", ""))
@@ -1269,6 +1309,8 @@ async def zha_command(request: web.Request) -> web.Response:
     cluster_type = str(body.get("cluster_type", "in"))
     command = int(body.get("command", 0))
     command_type = str(body.get("command_type", "server"))
+    args = body.get("args", [])
+    params = body.get("params")
 
     if not ieee:
         return web.json_response({"error": "ieee is required"}, status=400)
@@ -1276,16 +1318,21 @@ async def zha_command(request: web.Request) -> web.Response:
     try:
         if not runtime.session:
             return web.json_response({"error": "No session"}, status=500)
+        svc_data: dict[str, Any] = {
+            "ieee": ieee,
+            "endpoint_id": endpoint_id,
+            "cluster_id": cluster_id,
+            "cluster_type": cluster_type,
+            "command": command,
+            "command_type": command_type,
+        }
+        if params:
+            svc_data["params"] = params
+        else:
+            svc_data["args"] = args if isinstance(args, list) else []
         async with runtime.session.post(
             f"{SUPERVISOR_API}/services/zha/issue_zigbee_cluster_command",
-            json={
-                "ieee": ieee,
-                "endpoint_id": endpoint_id,
-                "cluster_id": cluster_id,
-                "cluster_type": cluster_type,
-                "command": command,
-                "command_type": command_type,
-            },
+            json=svc_data,
             timeout=ClientTimeout(total=30),
         ) as response:
             if response.status >= 300:
@@ -1397,6 +1444,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/zha-helper/read-attribute", zha_read_attribute)
     app.router.add_post("/api/zha-helper/write-attribute", zha_write_attribute)
     app.router.add_post("/api/zha-helper/command", zha_command)
+    app.router.add_post("/api/zha-helper/commands", get_zha_cluster_commands)
 
     app.router.add_get("/api/keepalive", get_keepalive_configs)
     app.router.add_post("/api/keepalive", create_keepalive)

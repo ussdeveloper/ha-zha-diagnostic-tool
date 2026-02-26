@@ -1,5 +1,21 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.14] - 2026-02-28
+
+### Fixed
+- **Device Helper — cluster commands**: expanding a cluster now auto-fetches available ZCL commands via `zha/devices/clusters/commands` WebSocket API. Commands shown with names, IDs, and Execute buttons — no more manual command ID typing.
+- **Device Helper — command execution**: fixed 400 Bad Request error — `zha.issue_zigbee_cluster_command` now properly sends `args` parameter (was missing, causing HA schema validation failure).
+- **Zigbee Logs**: fixed empty logs — state_changed filter now uses known zigbee entity set (by device_ieee) instead of keyword-matching entity_id. Captures ALL ZHA device state changes.
+- **Network map animation**: fixed swirling/freezing — repulsion reduced from quadratic DPR scaling to linear, progressive damping (0.6→0.35), velocity clamping prevents explosion, converges smoothly in ~200 frames.
+- **Entity detail window**: clicking an entity now finds ALL entities for the same physical device using `device_ieee` matching instead of fragile entity_id slug matching.
+
+### Added
+- **Backend**: new `POST /api/zha-helper/commands` endpoint for fetching cluster commands.
+- **Device Helper**: cluster commands section with Execute buttons and optional JSON args input per command.
+
+### Changed
+- Cache-bust bumped to `?v=0914`.
+
 ## [0.9.13] - 2026-02-27
 
 ### Fixed

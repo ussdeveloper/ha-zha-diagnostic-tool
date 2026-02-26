@@ -1146,19 +1146,12 @@ function renderBatteryAlerts(alerts) {
    ======================================================== */
 function openDeviceDetail(entityItem) {
   const eid = entityItem.entity_id;
+  const deviceIeee = entityItem.device_ieee || "";
 
-  // Find device key from entity_id (strip domain and known suffixes)
+  // Build a stable window key from device_ieee or entity slug
   const parts = eid.split(".", 2);
   const namePart = parts.length > 1 ? parts[1] : eid;
-  let deviceKey = namePart;
-  const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
-    "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
-    "_contact", "_vibration", "_rssi", "_lqi", "_linkquality",
-    "_alarm", "_tamper", "_trigger", "_action", "_click", "_event",
-    "_level", "_color_temp", "_brightness", "_voltage", "_current"];
-  for (const sfx of suffixes) {
-    if (namePart.endsWith(sfx)) { deviceKey = namePart.slice(0, -sfx.length); break; }
-  }
+  let deviceKey = deviceIeee ? deviceIeee.replace(/:/g, "") : namePart;
 
   // Reuse existing window if device already open
   const existingId = `dev-${deviceKey.replace(/[^a-z0-9_]/gi, "_")}`;
@@ -1167,22 +1160,38 @@ function openDeviceDetail(entityItem) {
   const winId = existingId;
   ++state.deviceWinCount;
 
-  // All entities for this device
+  // All entities for this device — prefer device_ieee matching
   const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
-  const related = allEntities.filter(e => {
-    const ep = e.entity_id.split(".", 2);
-    const en = ep.length > 1 ? ep[1] : ep[0];
-    return en === deviceKey || en.startsWith(deviceKey + "_");
-  });
+  let related;
+  if (deviceIeee) {
+    related = allEntities.filter(e => e.device_ieee && e.device_ieee === deviceIeee);
+  } else {
+    // Fallback: slug-based matching
+    let slug = namePart;
+    const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
+      "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
+      "_contact", "_vibration", "_rssi", "_lqi", "_linkquality",
+      "_alarm", "_tamper", "_trigger", "_action", "_click", "_event",
+      "_level", "_color_temp", "_brightness", "_voltage", "_current"];
+    for (const sfx of suffixes) {
+      if (namePart.endsWith(sfx)) { slug = namePart.slice(0, -sfx.length); break; }
+    }
+    related = allEntities.filter(e => {
+      const ep = e.entity_id.split(".", 2);
+      const en = ep.length > 1 ? ep[1] : ep[0];
+      return en === slug || en.startsWith(slug + "_");
+    });
+  }
   const unique = [...new Map(related.map(e => [e.entity_id, e])).values()];
   if (!unique.find(e => e.entity_id === eid)) unique.unshift(entityItem);
 
-  // Related telemetry
+  // Related telemetry — match by device_ieee or entity name part
+  const matchKey = deviceIeee || namePart;
   const deviceEvents = state.telemetryEvents
-    .filter(ev => (ev.summary || "").includes(deviceKey))
+    .filter(ev => (ev.summary || "").includes(matchKey) || (ev.entity_id || "").includes(matchKey))
     .slice(-30);
   const deviceCommands = state.commandLog
-    .filter(cmd => cmd.entity_id && cmd.entity_id.includes(deviceKey))
+    .filter(cmd => cmd.entity_id && (cmd.entity_id.includes(matchKey) || (deviceIeee && unique.some(e => e.entity_id === cmd.entity_id))))
     .slice(-30);
 
   const iconCls = entityItem.icon?.startsWith("mdi:") ? entityItem.icon.replace(":", "-") : "mdi-zigbee";
@@ -1679,16 +1688,21 @@ function _startForceAnimation() {
   function tick() {
     if (!nm.nodes || nm.settled) return;
     const dpr = window.devicePixelRatio || 1;
-    // Run 3 iterations per frame for visible settling
-    for (let i = 0; i < 3; i++) _forceStep(nm.nodes, dpr);
+    // Progressive damping: starts loose, tightens over time
+    const progress = Math.min(nm.animFrame / 80, 1);
+    const damping = 0.6 - progress * 0.25; // 0.6 → 0.35
+    // Run iterations per frame (more early, fewer late)
+    const iters = nm.animFrame < 30 ? 4 : 2;
+    for (let i = 0; i < iters; i++) _forceStep(nm.nodes, dpr, damping);
     nm.animFrame++;
     renderNetworkMap();
     // Check convergence: total velocity
     let totalV = 0;
     for (const n of nm.nodes) totalV += Math.abs(n.vx) + Math.abs(n.vy);
-    if (nm.animFrame > 120 || totalV < 0.5) {
+    if (nm.animFrame > 200 || totalV < 0.3) {
       nm.settled = true;
       nm._animId = null;
+      renderNetworkMap();
       return;
     }
     nm._animId = requestAnimationFrame(tick);
@@ -1707,13 +1721,14 @@ function _devLqi(dev) {
   return 128;
 }
 
-function _forceStep(nodes, dpr) {
-  const repel = 3200 * dpr * dpr;
-  const attract = 0.03;
-  const center = 0.005;
+function _forceStep(nodes, dpr, damping) {
+  const repel = 1800 * dpr;  // Linear DPR scale, not quadratic
+  const attract = 0.025;
+  const center = 0.004;
+  if (damping == null) damping = 0.5;
 
   for (const a of nodes) {
-    a.vx *= 0.7; a.vy *= 0.7;
+    a.vx *= damping; a.vy *= damping;
     // Center gravity
     a.vx -= a.x * center;
     a.vy -= a.y * center;
@@ -1722,9 +1737,10 @@ function _forceStep(nodes, dpr) {
       if (a === b) continue;
       const dx = a.x - b.x, dy = a.y - b.y;
       const d2 = dx*dx + dy*dy + 1;
+      const dist = Math.sqrt(d2);
       const f = repel / d2;
-      a.vx += (dx / Math.sqrt(d2)) * f;
-      a.vy += (dy / Math.sqrt(d2)) * f;
+      a.vx += (dx / dist) * f;
+      a.vy += (dy / dist) * f;
     }
     // Attraction to neighbors
     const neighbors = a.dev.neighbors || [];
@@ -1738,7 +1754,11 @@ function _forceStep(nodes, dpr) {
       a.vy += dy * attract;
     }
   }
+  // Clamp velocity to prevent explosion
+  const maxV = 15 * dpr;
   for (const a of nodes) {
+    a.vx = Math.max(-maxV, Math.min(maxV, a.vx));
+    a.vy = Math.max(-maxV, Math.min(maxV, a.vy));
     a.x += a.vx;
     a.y += a.vy;
   }
@@ -2718,11 +2738,12 @@ function renderDevHelperClusters(ieee, clusterData) {
           attrs.dataset.loaded = "1";
           attrs.innerHTML = `<div class="entity-sub">${t("dh.loading_attrs")}</div>`;
           try {
-            const attrData = await api("api/zha-helper/attributes", {
-              method: "POST",
-              body: JSON.stringify({ ieee, endpoint_id: epId, cluster_id: cId, cluster_type: cType }),
-            });
-            renderClusterAttributes(attrs, ieee, epId, cId, cType, attrData.attributes || []);
+            const reqBody = JSON.stringify({ ieee, endpoint_id: epId, cluster_id: cId, cluster_type: cType });
+            const [attrData, cmdData] = await Promise.all([
+              api("api/zha-helper/attributes", { method: "POST", body: reqBody }),
+              api("api/zha-helper/commands", { method: "POST", body: reqBody }).catch(() => ({ commands: {} })),
+            ]);
+            renderClusterAttributes(attrs, ieee, epId, cId, cType, attrData.attributes || [], cmdData.commands || {});
           } catch (e) {
             attrs.innerHTML = `<div class="entity-sub">Error: ${escapeHtml(e.message)}</div>`;
           }
@@ -2735,11 +2756,76 @@ function renderDevHelperClusters(ieee, clusterData) {
   }
 }
 
-function renderClusterAttributes(container, ieee, endpointId, clusterId, clusterType, attributes) {
+function renderClusterAttributes(container, ieee, endpointId, clusterId, clusterType, attributes, commands) {
   container.innerHTML = "";
   const zclCluster = ZCL_HELP[clusterId];
 
-  // "Read All" button
+  // ── Commands Section ──
+  const serverCmds = commands.server_commands || commands.server || {};
+  const clientCmds = commands.client_commands || commands.client || {};
+  const hasCommands = Object.keys(serverCmds).length + Object.keys(clientCmds).length > 0;
+
+  if (hasCommands) {
+    const cmdSection = document.createElement("div");
+    cmdSection.className = "cluster-cmd-section";
+    cmdSection.style.cssText = "padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:6px";
+
+    const cmdTitle = document.createElement("div");
+    cmdTitle.style.cssText = "font-size:11px;font-weight:600;color:#60cdff;margin-bottom:6px";
+    cmdTitle.innerHTML = '<i class="mdi mdi-console"></i> Cluster Commands';
+    cmdSection.appendChild(cmdTitle);
+
+    const renderCmdGroup = (cmds, cmdType) => {
+      for (const [cmdId, cmdName] of Object.entries(cmds)) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:6px;align-items:center;padding:3px 0;flex-wrap:wrap";
+        const label = document.createElement("span");
+        label.style.cssText = "font-size:11px;min-width:140px";
+        label.innerHTML = `<code style="color:#60cdff">${escapeHtml(String(cmdName))}</code> <span class="entity-sub">[${cmdId}] ${cmdType}</span>`;
+        row.appendChild(label);
+        const argsInput = document.createElement("input");
+        argsInput.placeholder = "args (JSON array, optional)";
+        argsInput.style.cssText = "font-size:11px;padding:2px 6px;width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px";
+        row.appendChild(argsInput);
+        const execBtn = document.createElement("button");
+        execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute';
+        execBtn.style.fontSize = "11px";
+        execBtn.addEventListener("click", async () => {
+          execBtn.disabled = true;
+          let args = [];
+          const raw = argsInput.value.trim();
+          if (raw) {
+            try { args = JSON.parse(raw); } catch { args = [raw]; }
+          }
+          try {
+            await api("api/zha-helper/command", {
+              method: "POST",
+              body: JSON.stringify({
+                ieee, endpoint_id: endpointId, cluster_id: clusterId,
+                cluster_type: clusterType, command: parseInt(cmdId, 10),
+                command_type: cmdType, args,
+              }),
+            });
+            execBtn.innerHTML = '<i class="mdi mdi-check"></i> OK';
+            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute'; }, 1500);
+          } catch (e) {
+            execBtn.innerHTML = '<i class="mdi mdi-alert"></i> Error';
+            execBtn.title = e.message;
+            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute'; execBtn.title = ""; }, 2000);
+          }
+          execBtn.disabled = false;
+        });
+        row.appendChild(execBtn);
+        cmdSection.appendChild(row);
+      }
+    };
+
+    if (Object.keys(serverCmds).length) renderCmdGroup(serverCmds, "server");
+    if (Object.keys(clientCmds).length) renderCmdGroup(clientCmds, "client");
+    container.appendChild(cmdSection);
+  }
+
+  // ── Attributes Section ──
   const toolbar = document.createElement("div");
   toolbar.style.cssText = "display:flex;gap:6px;align-items:center;padding:2px 0 6px;border-bottom:1px solid var(--border);margin-bottom:4px";
   const readAllBtn = document.createElement("button");
@@ -2757,47 +2843,6 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
     readAllBtn.innerHTML = '<i class="mdi mdi-download"></i> Read All';
   });
   toolbar.appendChild(readAllBtn);
-
-  // Issue Command section
-  const cmdBtn = document.createElement("button");
-  cmdBtn.innerHTML = '<i class="mdi mdi-console"></i> Issue Command';
-  cmdBtn.style.fontSize = "11px";
-  cmdBtn.addEventListener("click", () => {
-    const cmdSection = container.querySelector(".cluster-cmd-section");
-    if (cmdSection) { cmdSection.style.display = cmdSection.style.display === "none" ? "" : "none"; return; }
-    const section = document.createElement("div");
-    section.className = "cluster-cmd-section";
-    section.style.cssText = "padding:6px 0;border-top:1px solid var(--border);margin-top:4px";
-    section.innerHTML =
-      `<div style="font-size:11px;color:var(--accent);margin-bottom:4px"><i class="mdi mdi-console"></i> Issue ZCL Command</div>` +
-      `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">` +
-      `<label style="font-size:11px">Command ID:</label>` +
-      `<input class="cmd-id-input" type="number" min="0" max="255" value="0" style="width:60px;font-size:12px;padding:3px 6px" />` +
-      `<label style="font-size:11px">Type:</label>` +
-      `<select class="cmd-type-select" style="font-size:11px;padding:3px">` +
-      `<option value="server">Server</option><option value="client">Client</option></select>` +
-      `<button class="cmd-send-btn" style="font-size:11px"><i class="mdi mdi-send"></i> Send</button>` +
-      `</div>`;
-    section.querySelector(".cmd-send-btn").addEventListener("click", async () => {
-      const cmdId = parseInt(section.querySelector(".cmd-id-input").value, 10);
-      const cmdType = section.querySelector(".cmd-type-select").value;
-      const btn = section.querySelector(".cmd-send-btn");
-      btn.disabled = true;
-      try {
-        await api("api/zha-helper/command", {
-          method: "POST",
-          body: JSON.stringify({ ieee, endpoint_id: endpointId, cluster_id: clusterId, cluster_type: clusterType, command: cmdId, command_type: cmdType }),
-        });
-        btn.innerHTML = '<i class="mdi mdi-check"></i> Sent';
-        setTimeout(() => { btn.innerHTML = '<i class="mdi mdi-send"></i> Send'; }, 1500);
-      } catch (e) {
-        alert(`Command error: ${e.message}`);
-      }
-      btn.disabled = false;
-    });
-    container.appendChild(section);
-  });
-  toolbar.appendChild(cmdBtn);
   container.appendChild(toolbar);
 
   if (!attributes.length) {

@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.10] - 2026-02-28
+
+### Fixed
+- Device Helper: auto-fetch and display cluster commands with named Execute buttons (was manual command ID input).
+- Device Helper: fixed 400 error on command execution (missing args/params in service call).
+- Zigbee Logs: entity set-based filter captures all ZHA device state changes (was keyword-only).
+- Network map: stable force-directed layout with progressive damping and velocity clamping.
+- Entity detail window: uses device_ieee for reliable multi-entity device matching.
+
+### Added
+- Backend cluster commands endpoint (`/api/zha-helper/commands`).
+
 ## [0.10.9] - 2026-02-27
 
 ### Fixed
