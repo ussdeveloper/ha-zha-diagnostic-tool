@@ -1,5 +1,26 @@
-﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.6) ===== */
+﻿/* ===== ZHA Diagnostic Desktop — app.js (v0.9.12) ===== */
 "use strict";
+
+/* ---------- i18n helpers ---------- */
+/** Returns the localised string for `key`; falls back to English, then the key itself. */
+function t(key) {
+  const lang = window.ZHA_LANG || "en";
+  return ZHA_STRINGS?.[lang]?.[key] ?? ZHA_STRINGS?.en?.[key] ?? key;
+}
+
+/** Applies the active locale to all [data-i18n*] elements in the DOM. */
+function applyLocale() {
+  const dict = ZHA_STRINGS?.[window.ZHA_LANG || "en"] ?? ZHA_STRINGS?.en ?? {};
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const v = dict[el.dataset.i18n]; if (v != null) el.textContent = v;
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+    const v = dict[el.dataset.i18nPlaceholder]; if (v != null) el.placeholder = v;
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach(el => {
+    const v = dict[el.dataset.i18nTitle]; if (v != null) el.title = v;
+  });
+}
 
 /* ---------- State ---------- */
 const state = {
@@ -1024,9 +1045,9 @@ function renderBatteryChart(items) {
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${12 * dpr}px Segoe UI`;
     if (state.batterySelected.size > 0) {
-      ctx.fillText("Selected devices have no battery history data", 14 * dpr, 22 * dpr);
+      ctx.fillText(t("bat.no_data_selected"), 14 * dpr, 22 * dpr);
     } else {
-      ctx.fillText("No battery history data available", 14 * dpr, 22 * dpr);
+      ctx.fillText(t("bat.no_data"), 14 * dpr, 22 * dpr);
     }
     return;
   }
@@ -1087,7 +1108,7 @@ function renderBatteryAlerts(alerts) {
   if (!host) return;
   host.innerHTML = "";
   if (!alerts || !alerts.length) {
-    host.innerHTML = '<div class="row"><div class="entity-sub">No battery alerts configured</div></div>';
+    host.innerHTML = `<div class="row"><div class="entity-sub">${t("bat.no_alerts")}</div></div>`;
     return;
   }
   for (const alert of alerts) {
@@ -1322,7 +1343,7 @@ function renderNetworkMap() {
     ctx.fillStyle = "#ffffff61";
     ctx.font = `${13 * dpr}px Segoe UI`;
     ctx.textAlign = "left";
-    ctx.fillText("No ZHA devices — open Network Map to load", 20 * dpr, 30 * dpr);
+    ctx.fillText(t("netmap.no_devices"), 20 * dpr, 30 * dpr);
     return;
   }
 
@@ -1427,10 +1448,10 @@ function renderNetworkMap() {
   ctx.fillStyle = "#fff";
   ctx.font = `bold ${10 * dpr}px Segoe UI`;
   ctx.textAlign = "center";
-  ctx.fillText("HUB", 0, 3 * dpr);
+  ctx.fillText(t("netmap.hub"), 0, 3 * dpr);
   ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.font = `${9 * dpr}px Segoe UI`;
-  ctx.fillText("Coordinator", 0, -22 * dpr);
+  ctx.fillText(t("netmap.coord"), 0, -22 * dpr);
 
   // Draw device nodes
   for (const node of nm.nodes) {
@@ -1527,7 +1548,7 @@ function renderNetworkMap() {
   // Legend (top-right corner)
   const lx = w - 110 * dpr, ly = 16 * dpr;
   ctx.font = `${10 * dpr}px Segoe UI`;
-  [["#6ccb5f", "LQI > 180 (good)"], ["#fce100", "LQI 100-180 (ok)"], ["#ff6b6b", "LQI < 100 (poor)"]].forEach(([c, label], i) => {
+  [["#6ccb5f", t("netmap.lqi_good")], ["#fce100", t("netmap.lqi_ok")], ["#ff6b6b", t("netmap.lqi_poor")]].forEach(([c, label], i) => {
     ctx.fillStyle = c;
     ctx.beginPath();
     ctx.arc(lx, ly + i * 16 * dpr, 4 * dpr, 0, Math.PI * 2);
@@ -1640,7 +1661,7 @@ function renderNetworkMap() {
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.font = `${8 * dprMm}px Segoe UI`;
     ctx.textAlign = "left";
-    ctx.fillText("minimap", mmX + 3*dprMm, mmY + 9*dprMm);
+    ctx.fillText(t("netmap.minimap"), mmX + 3*dprMm, mmY + 9*dprMm);
 
     ctx.restore();
   }
@@ -2528,7 +2549,7 @@ async function selectDevHelperDevice(dev) {
 async function loadDevHelperClusters(ieee) {
   const host = $("devhelper-clusters");
   if (!host) return;
-  host.innerHTML = '<div class="row"><div class="entity-sub">Loading clusters...</div></div>';
+  host.innerHTML = `<div class="row"><div class="entity-sub">${t("dh.loading_clusters")}</div></div>`;
 
   // Use embedded endpoint/cluster data from zha/devices (already fetched)
   const fullDev = state.zhaDevicesFull.find(d => d.ieee === ieee);
@@ -2583,7 +2604,7 @@ function renderDevHelperClusters(ieee, clusterData) {
   }
 
   if (!endpoints.length) {
-    host.innerHTML = '<div class="row"><div class="entity-sub">No clusters found</div></div>';
+    host.innerHTML = `<div class="row"><div class="entity-sub">${t("dh.no_clusters")}</div></div>`;
     return;
   }
 
@@ -2629,7 +2650,7 @@ function renderDevHelperClusters(ieee, clusterData) {
         header.classList.toggle("open");
         if (!wasOpen && !attrs.dataset.loaded) {
           attrs.dataset.loaded = "1";
-          attrs.innerHTML = '<div class="entity-sub">Loading attributes...</div>';
+          attrs.innerHTML = `<div class="entity-sub">${t("dh.loading_attrs")}</div>`;
           try {
             const attrData = await api("api/zha-helper/attributes", {
               method: "POST",
@@ -3173,7 +3194,7 @@ async function addBatteryAlert() {
   const threshold = parseInt($("battery-threshold")?.value || "20", 10);
   const notify_entity = $("battery-notify-entity")?.value || "";
   if (!notify_entity) {
-    alert("Please select a notify entity (phone)");
+    alert(t("msg.please_notify"));
     return;
   }
   await api("api/battery-alerts", {
@@ -3212,7 +3233,7 @@ function openUnavailDevicesWin() {
   const body = $("unavail-devs-body");
   if (body) {
     body.innerHTML = devs.length === 0
-      ? '<div class="entity-sub" style="padding:12px">No unavailable devices data</div>'
+      ? `<div class="entity-sub" style="padding:12px">${t("dh.no_unavail")}</div>`
       : devs.map(d => {
           const lqiHtml = d.lqi != null
             ? `<span class="entity-sub" style="white-space:nowrap"> \u00B7 LQI ${d.lqi}</span>` : "";
@@ -3236,7 +3257,7 @@ function populateNotifySelect() {
   const sel = $("battery-notify-entity");
   if (!sel || sel.tagName !== "SELECT") return;
   const prev = sel.value;
-  sel.innerHTML = '<option value="">— select notify entity —</option>' +
+  sel.innerHTML = `<option value="">${t("bat.select_notify")}</option>` +
     (state.notifyEntities || []).map(e => {
       const label = e.friendly_name && e.friendly_name !== e.entity_id
         ? `${escapeHtml(e.friendly_name)} (${escapeHtml(e.entity_id)})`
@@ -3313,6 +3334,7 @@ async function load() {
 document.addEventListener("DOMContentLoaded", () => {
   /* Boot window manager */
   WM.init();
+  applyLocale();
 
   /* Init autocomplete fields */
   initAutocomplete("mirror-source", "mirror-source-list", () =>

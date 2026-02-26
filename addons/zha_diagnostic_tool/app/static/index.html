@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=0911" />
+  <link rel="stylesheet" href="static/styles.css?v=0912" />
 </head>
 <body>
 
@@ -16,43 +16,43 @@
     <div class="desktop-icons">
       <button class="desktop-shortcut" data-win="kpi-win">
         <div class="shortcut-icon"><i class="mdi mdi-chart-line"></i></div>
-        <span>Dashboard KPI</span>
+        <span data-i18n="nav.dashboard_kpi">Dashboard KPI</span>
       </button>
       <button class="desktop-shortcut" data-win="zha-win">
         <div class="shortcut-icon"><i class="mdi mdi-zigbee"></i></div>
-        <span>ZHA Entities</span>
+        <span data-i18n="nav.zha_entities">ZHA Entities</span>
       </button>
       <button class="desktop-shortcut" data-win="switch-win">
         <div class="shortcut-icon"><i class="mdi mdi-toggle-switch"></i></div>
-        <span>Switches</span>
+        <span data-i18n="nav.switches">Switches</span>
       </button>
       <button class="desktop-shortcut" data-win="telemetry-win">
         <div class="shortcut-icon"><i class="mdi mdi-pulse"></i></div>
-        <span>Telemetry</span>
+        <span data-i18n="nav.telemetry">Telemetry</span>
       </button>
       <button class="desktop-shortcut" data-win="mirror-win">
         <div class="shortcut-icon"><i class="mdi mdi-link-variant"></i></div>
-        <span>Mirror Rules</span>
+        <span data-i18n="nav.mirror_rules">Mirror Rules</span>
       </button>
       <button class="desktop-shortcut" data-win="sensor-win">
         <div class="shortcut-icon"><i class="mdi mdi-tune-variant"></i></div>
-        <span>Sensor Rules</span>
+        <span data-i18n="nav.sensor_rules">Sensor Rules</span>
       </button>
       <button class="desktop-shortcut" data-win="battery-win">
         <div class="shortcut-icon"><i class="mdi mdi-battery"></i></div>
-        <span>Battery Monitor</span>
+        <span data-i18n="nav.battery_monitor">Battery Monitor</span>
       </button>
       <button class="desktop-shortcut" data-win="netmap-win">
         <div class="shortcut-icon"><i class="mdi mdi-lan"></i></div>
-        <span>Network Map</span>
+        <span data-i18n="nav.network_map">Network Map</span>
       </button>
       <button class="desktop-shortcut" data-win="devhelper-win">
         <div class="shortcut-icon"><i class="mdi mdi-wrench"></i></div>
-        <span>Device Helper</span>
+        <span data-i18n="nav.device_helper">Device Helper</span>
       </button>
       <button class="desktop-shortcut" data-win="zigbeelogs-win">
         <div class="shortcut-icon"><i class="mdi mdi-alert-circle"></i></div>
-        <span>Zigbee Logs</span>
+        <span data-i18n="nav.zigbee_logs">Zigbee Logs</span>
       </button>
     </div>
 
@@ -62,7 +62,7 @@
     <section class="window" id="kpi-win">
       <div class="window-titlebar">
         <i class="mdi mdi-chart-line win-icon"></i>
-        <span class="win-title">Dashboard — KPI &amp; Delay Chart</span>
+        <span class="win-title" data-i18n="win.kpi">Dashboard — KPI &amp; Delay Chart</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -71,16 +71,16 @@
       </div>
       <div class="window-body">
         <div class="kpis">
-          <div class="kpi"><label>Zigbee</label><strong id="kpi-entities">-</strong></div>
-          <div class="kpi"><label>Switches</label><strong id="kpi-switches">-</strong></div>
-          <div class="kpi"><label>Mirror</label><strong id="kpi-rules">-</strong></div>
-          <div class="kpi"><label>Sensor</label><strong id="kpi-srules">-</strong></div>
-          <div class="kpi"><label>AVG</label><strong id="kpi-avg">-</strong></div>
-          <div class="kpi"><label>P95</label><strong id="kpi-p95">-</strong></div>
-          <div class="kpi"><label>MAX</label><strong id="kpi-max">-</strong></div>
-          <div class="kpi"><label>Pending</label><strong id="kpi-pending">-</strong></div>
-          <div class="kpi kpi-err"><label>Errors</label><strong id="kpi-errors">0</strong></div>
-          <div class="kpi"><label>Success%</label><strong id="kpi-success">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.zigbee">Zigbee</label><strong id="kpi-entities">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.switches">Switches</label><strong id="kpi-switches">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.mirror">Mirror</label><strong id="kpi-rules">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.sensor">Sensor</label><strong id="kpi-srules">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.avg">AVG</label><strong id="kpi-avg">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.p95">P95</label><strong id="kpi-p95">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.max">MAX</label><strong id="kpi-max">-</strong></div>
+          <div class="kpi"><label data-i18n="kpi.pending">Pending</label><strong id="kpi-pending">-</strong></div>
+          <div class="kpi kpi-err"><label data-i18n="kpi.errors">Errors</label><strong id="kpi-errors">0</strong></div>
+          <div class="kpi"><label data-i18n="kpi.success">Success%</label><strong id="kpi-success">-</strong></div>
         </div>
         <canvas id="delay-chart"></canvas>
       </div>
@@ -91,7 +91,7 @@
     <section class="window" id="zha-win">
       <div class="window-titlebar">
         <i class="mdi mdi-zigbee win-icon"></i>
-        <span class="win-title">ZHA Entities</span>
+        <span class="win-title" data-i18n="win.zha">ZHA Entities</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -100,7 +100,7 @@
       </div>
       <div class="window-body">
         <div class="toolbar">
-          <input id="zha-search" placeholder="Search ZHA entities..." />
+          <input id="zha-search" placeholder="Search ZHA entities..." data-i18n-placeholder="ph.search_zha" />
           <span class="meta"><b id="updated-at">-</b></span>
         </div>
         <div id="zha-list" class="list"></div>
@@ -112,7 +112,7 @@
     <section class="window" id="switch-win">
       <div class="window-titlebar">
         <i class="mdi mdi-toggle-switch win-icon"></i>
-        <span class="win-title">Switches</span>
+        <span class="win-title" data-i18n="win.switches">Switches</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -121,7 +121,7 @@
       </div>
       <div class="window-body">
         <div class="toolbar">
-          <input id="switch-search" placeholder="Search switches..." />
+          <input id="switch-search" placeholder="Search switches..." data-i18n-placeholder="ph.search_switches" />
         </div>
         <div id="switch-list" class="list"></div>
       </div>
@@ -132,7 +132,7 @@
     <section class="window" id="lights-win">
       <div class="window-titlebar">
         <i class="mdi mdi-lightbulb win-icon"></i>
-        <span class="win-title">Lights</span>
+        <span class="win-title" data-i18n="win.lights">Lights</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -141,7 +141,7 @@
       </div>
       <div class="window-body">
         <div class="toolbar">
-          <input id="lights-search" placeholder="Search lights..." />
+          <input id="lights-search" placeholder="Search lights..." data-i18n-placeholder="ph.search_lights" />
         </div>
         <div id="lights-list" class="list"></div>
       </div>
@@ -152,7 +152,7 @@
     <section class="window" id="telemetry-win">
       <div class="window-titlebar">
         <i class="mdi mdi-pulse win-icon"></i>
-        <span class="win-title">ZHA Telemetry (Realtime)</span>
+        <span class="win-title" data-i18n="win.telemetry">ZHA Telemetry (Realtime)</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -162,10 +162,10 @@
       <div class="window-body telemetry-body">
         <div class="telemetry-top" id="telemetry-top">
           <div class="tele-legend">
-            <span><i class="dot" style="background:#60cdff"></i> ZHA</span>
-            <span><i class="dot" style="background:#6ccb5f"></i> State</span>
-            <span><i class="dot" style="background:#fce100"></i> Call</span>
-            <span><i class="dot" style="background:#ff6b6b"></i> Error</span>
+            <span><i class="dot" style="background:#60cdff"></i> <span data-i18n="tele.zha">ZHA</span></span>
+            <span><i class="dot" style="background:#6ccb5f"></i> <span data-i18n="tele.state">State</span></span>
+            <span><i class="dot" style="background:#fce100"></i> <span data-i18n="tele.call">Call</span></span>
+            <span><i class="dot" style="background:#ff6b6b"></i> <span data-i18n="tele.error">Error</span></span>
           </div>
           <canvas id="telemetry-chart"></canvas>
         </div>
@@ -181,7 +181,7 @@
     <section class="window" id="mirror-win">
       <div class="window-titlebar">
         <i class="mdi mdi-link-variant win-icon"></i>
-        <span class="win-title">Mirror Switches</span>
+        <span class="win-title" data-i18n="win.mirror">Mirror Switches</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -191,15 +191,15 @@
       <div class="window-body">
         <div class="form-grid mirror-form">
           <div class="autocomplete-wrap">
-            <input id="mirror-source" class="autocomplete-input" placeholder="Source switch..." autocomplete="off" />
+            <input id="mirror-source" class="autocomplete-input" placeholder="Source switch..." data-i18n-placeholder="ph.mirror_source" autocomplete="off" />
             <div class="autocomplete-list" id="mirror-source-list"></div>
           </div>
           <div class="autocomplete-wrap">
-            <input id="mirror-target" class="autocomplete-input" placeholder="Target switch..." autocomplete="off" />
+            <input id="mirror-target" class="autocomplete-input" placeholder="Target switch..." data-i18n-placeholder="ph.mirror_target" autocomplete="off" />
             <div class="autocomplete-list" id="mirror-target-list"></div>
           </div>
-          <label class="checkbox"><input type="checkbox" id="mirror-bidirectional" checked /> Bidirectional</label>
-          <button class="accent" id="add-rule-btn"><i class="mdi mdi-plus"></i> Link</button>
+          <label class="checkbox"><input type="checkbox" id="mirror-bidirectional" checked /> <span data-i18n="label.bidirectional">Bidirectional</span></label>
+          <button class="accent" id="add-rule-btn"><i class="mdi mdi-plus"></i> <span data-i18n="btn.link">Link</span></button>
         </div>
         <div id="rules-list" class="list"></div>
       </div>
@@ -210,7 +210,7 @@
     <section class="window" id="sensor-win">
       <div class="window-titlebar">
         <i class="mdi mdi-tune-variant win-icon"></i>
-        <span class="win-title">Sensor Range &rarr; Switch</span>
+        <span class="win-title" data-i18n="win.sensor">Sensor Range &rarr; Switch</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -220,27 +220,27 @@
       <div class="window-body">
         <div class="form-grid sensor-form">
           <div class="autocomplete-wrap">
-            <input id="sensor-entity" class="autocomplete-input" placeholder="Sensor entity..." autocomplete="off" />
+            <input id="sensor-entity" class="autocomplete-input" placeholder="Sensor entity..." data-i18n-placeholder="ph.sensor_entity" autocomplete="off" />
             <div class="autocomplete-list" id="sensor-entity-list"></div>
           </div>
           <div class="autocomplete-wrap">
-            <input id="sensor-switch" class="autocomplete-input" placeholder="Target switch..." autocomplete="off" />
+            <input id="sensor-switch" class="autocomplete-input" placeholder="Target switch..." data-i18n-placeholder="ph.sensor_switch" autocomplete="off" />
             <div class="autocomplete-list" id="sensor-switch-list"></div>
           </div>
           <input id="sensor-min" type="number" step="any" placeholder="MIN" />
           <input id="sensor-max" type="number" step="any" placeholder="MAX" />
           <select id="sensor-in-action">
-            <option value="turn_on">In: ON</option>
-            <option value="turn_off">In: OFF</option>
-            <option value="toggle">In: toggle</option>
+            <option value="turn_on" data-i18n="sensor.in_on">In: ON</option>
+            <option value="turn_off" data-i18n="sensor.in_off">In: OFF</option>
+            <option value="toggle" data-i18n="sensor.in_toggle">In: toggle</option>
           </select>
           <select id="sensor-out-action">
-            <option value="none">Out: none</option>
-            <option value="turn_on">Out: ON</option>
-            <option value="turn_off">Out: OFF</option>
-            <option value="toggle">Out: toggle</option>
+            <option value="none" data-i18n="sensor.out_none">Out: none</option>
+            <option value="turn_on" data-i18n="sensor.out_on">Out: ON</option>
+            <option value="turn_off" data-i18n="sensor.out_off">Out: OFF</option>
+            <option value="toggle" data-i18n="sensor.out_toggle">Out: toggle</option>
           </select>
-          <button class="accent" id="add-sensor-rule-btn"><i class="mdi mdi-plus"></i> Add</button>
+          <button class="accent" id="add-sensor-rule-btn"><i class="mdi mdi-plus"></i> <span data-i18n="btn.add">Add</span></button>
         </div>
         <div id="sensor-rules-list" class="list"></div>
       </div>
@@ -251,7 +251,7 @@
     <section class="window" id="battery-win">
       <div class="window-titlebar">
         <i class="mdi mdi-battery win-icon"></i>
-        <span class="win-title">Battery Monitor</span>
+        <span class="win-title" data-i18n="win.battery">Battery Monitor</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -260,17 +260,17 @@
       </div>
       <div class="window-body battery-body">
         <div class="battery-toolbar">
-          <input id="battery-search" placeholder="Search battery devices..." />
-          <span class="meta">Alert threshold:</span>
+          <input id="battery-search" placeholder="Search battery devices..." data-i18n-placeholder="ph.search_battery" />
+          <span class="meta" data-i18n="label.alert_threshold">Alert threshold:</span>
           <input id="battery-threshold" type="number" min="0" max="100" value="20" style="width:60px" />
           <span class="meta">%</span>
           <select id="battery-notify-entity" style="min-width:200px">
             <option value="">&#8212; select notify entity &#8212;</option>
           </select>
-          <button class="accent" id="save-battery-alert-btn"><i class="mdi mdi-bell-plus"></i> Save Alert</button>
+          <button class="accent" id="save-battery-alert-btn"><i class="mdi mdi-bell-plus"></i> <span data-i18n="btn.save_alert">Save Alert</span></button>
         </div>
         <div id="battery-alerts-list" class="list" style="max-height:80px;flex:none"></div>
-        <div class="battery-chart-hint"><i class="mdi mdi-cursor-default-click" style="color:var(--accent)"></i> Click device rows below to select/deselect on chart</div>
+        <div class="battery-chart-hint"><i class="mdi mdi-cursor-default-click" style="color:var(--accent)"></i> <span data-i18n="label.battery_chart_hint">Click device rows below to select/deselect on chart</span></div>
         <div id="battery-list" class="list"></div>
         <canvas id="battery-chart"></canvas>
       </div>
@@ -281,7 +281,7 @@
     <section class="window" id="netmap-win">
       <div class="window-titlebar">
         <i class="mdi mdi-lan win-icon"></i>
-        <span class="win-title">ZHA Network Map</span>
+        <span class="win-title" data-i18n="win.netmap">ZHA Network Map</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -290,7 +290,7 @@
       </div>
       <div class="window-body netmap-body">
         <canvas id="netmap-canvas"></canvas>
-        <button id="netmap-scan-btn" class="netmap-scan-btn" title="Scan ZHA network topology"><i class="mdi mdi-radar"></i> Scan Network</button>
+        <button id="netmap-scan-btn" class="netmap-scan-btn" title="Scan ZHA network topology" data-i18n-title="title.scan_network"><i class="mdi mdi-radar"></i> <span data-i18n="btn.scan_network">Scan Network</span></button>
       </div>
       <div class="resize-handle"></div>
     </section>
@@ -299,7 +299,7 @@
     <section class="window" id="devhelper-win">
       <div class="window-titlebar">
         <i class="mdi mdi-wrench win-icon"></i>
-        <span class="win-title">Device Helper Explorer</span>
+        <span class="win-title" data-i18n="win.devhelper">Device Helper Explorer</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -308,20 +308,20 @@
       </div>
       <div class="window-body devhelper-body">
         <div class="devhelper-left">
-          <input id="devhelper-search" placeholder="Search ZHA devices..." />
+          <input id="devhelper-search" placeholder="Search ZHA devices..." data-i18n-placeholder="ph.search_devhelper" />
           <div id="devhelper-device-list" class="list"></div>
         </div>
         <div class="devhelper-resize-bar" id="devhelper-resize-bar"></div>
         <div class="devhelper-right">
           <div id="devhelper-device-info" class="devhelper-info">
-            <span class="entity-sub">Select a device from the list</span>
+            <span class="entity-sub" data-i18n="label.select_device">Select a device from the list</span>
           </div>
           <div id="devhelper-clusters" class="list" style="flex:1;min-height:0"></div>
           <div class="devhelper-actions">
-            <button class="accent" id="devhelper-identify-btn" disabled><i class="mdi mdi-flash"></i> Identify</button>
-            <label class="checkbox"><input type="checkbox" id="devhelper-keepalive-chk" /> Keep-alive</label>
+            <button class="accent" id="devhelper-identify-btn" disabled><i class="mdi mdi-flash"></i> <span data-i18n="btn.identify">Identify</span></button>
+            <label class="checkbox"><input type="checkbox" id="devhelper-keepalive-chk" /> <span data-i18n="label.keep_alive">Keep-alive</span></label>
             <input id="devhelper-keepalive-interval" type="number" min="10" max="3600" value="60" style="width:70px" />
-            <span class="meta">sec</span>
+            <span class="meta" data-i18n="label.sec">sec</span>
             <button class="accent" id="devhelper-save-keepalive-btn" disabled><i class="mdi mdi-content-save"></i></button>
           </div>
         </div>
@@ -333,7 +333,7 @@
     <section class="window" id="zigbeelogs-win">
       <div class="window-titlebar">
         <i class="mdi mdi-alert-circle win-icon"></i>
-        <span class="win-title">All Zigbee Logs — Errors &amp; Events</span>
+        <span class="win-title" data-i18n="win.zigbeelogs">All Zigbee Logs — Errors &amp; Events</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -342,18 +342,18 @@
       </div>
       <div class="window-body">
         <div class="zigbeelogs-toolbar">
-          <input id="zigbeelogs-search" placeholder="Search logs (IEEE, type, message)..." />
+          <input id="zigbeelogs-search" placeholder="Search logs (IEEE, type, message)..." data-i18n-placeholder="ph.search_logs" />
           <div class="zbl-filters">
-            <label class="checkbox"><input type="checkbox" id="zbl-filter-timeout" checked /> Timeout</label>
-            <label class="checkbox"><input type="checkbox" id="zbl-filter-not_delivered" checked /> Not Delivered</label>
-            <label class="checkbox"><input type="checkbox" id="zbl-filter-lqi_critical" checked /> LQI Critical</label>
-            <label class="checkbox"><input type="checkbox" id="zbl-filter-log_error" checked /> Log Errors</label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-timeout" checked /> <span data-i18n="filter.timeout">Timeout</span></label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-not_delivered" checked /> <span data-i18n="filter.not_delivered">Not Delivered</span></label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-lqi_critical" checked /> <span data-i18n="filter.lqi_critical">LQI Critical</span></label>
+            <label class="checkbox"><input type="checkbox" id="zbl-filter-log_error" checked /> <span data-i18n="filter.log_errors">Log Errors</span></label>
           </div>
-          <button id="zigbeelogs-clear-btn"><i class="mdi mdi-delete-sweep"></i> Clear</button>
+          <button id="zigbeelogs-clear-btn"><i class="mdi mdi-delete-sweep"></i> <span data-i18n="btn.clear">Clear</span></button>
           <button id="zigbeelogs-pause-btn"><i class="mdi mdi-pause"></i></button>
         </div>
         <div id="zigbeelogs-list" class="list"></div>
-        <textarea id="zigbeelogs-raw" class="log-textarea" readonly placeholder="Click a log entry to see raw data..."></textarea>
+        <textarea id="zigbeelogs-raw" class="log-textarea" readonly placeholder="Click a log entry to see raw data..." data-i18n-placeholder="ph.log_raw"></textarea>
       </div>
       <div class="resize-handle"></div>
     </section>
@@ -362,7 +362,7 @@
     <section class="window" id="unavail-devs-win">
       <div class="window-titlebar">
         <i class="mdi mdi-wifi-off win-icon" style="color:#ff6b6b"></i>
-        <span class="win-title">Unavailable Zigbee Devices</span>
+        <span class="win-title" data-i18n="win.unavail">Unavailable Zigbee Devices</span>
         <div class="window-controls">
           <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
           <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
@@ -381,7 +381,7 @@
   <!-- ===== TASKBAR (Windows 11) ===== -->
   <div class="taskbar">
     <div class="taskbar-start">
-      <button class="start-btn" title="ZHA Diagnostic Tool"><i class="mdi mdi-zigbee"></i></button>
+      <button class="start-btn" title="ZHA Diagnostic Tool" data-i18n-title="title.app"><i class="mdi mdi-zigbee"></i></button>
     </div>
 
     <div class="taskbar-apps" id="taskbar-apps">
@@ -396,13 +396,13 @@
       <button class="taskbar-app" data-win="netmap-win" title="Network Map"><i class="mdi mdi-lan"></i></button>
       <button class="taskbar-app" data-win="devhelper-win" title="Device Helper"><i class="mdi mdi-wrench"></i></button>
       <button class="taskbar-app" data-win="zigbeelogs-win" title="Zigbee Logs"><i class="mdi mdi-alert-circle"></i></button>
-      <button class="taskbar-app" id="refresh-btn" title="Refresh data"><i class="mdi mdi-refresh"></i></button>
+      <button class="taskbar-app" id="refresh-btn" title="Refresh data" data-i18n-title="title.refresh"><i class="mdi mdi-refresh"></i></button>
     </div>
 
     <div class="taskbar-tray">
       <div class="taskbar-status">
         <span id="taskbar-dot" class="dot"></span>
-        <span id="taskbar-status-text">Initializing...</span>
+        <span id="taskbar-status-text" data-i18n="msg.initializing">Initializing...</span>
       </div>
       <div class="taskbar-clock" id="taskbar-clock"></div>
     </div>
@@ -414,28 +414,29 @@
   <!-- Folder Properties Dialog -->
   <div id="folder-dialog" class="dialog-overlay">
     <div class="dialog">
-      <div class="dialog-title">Folder Properties</div>
-      <label class="dialog-label">Name</label>
-      <input id="folder-name-input" placeholder="Folder name..." />
-      <label class="dialog-label">Icon</label>
+      <div class="dialog-title" data-i18n="label.folder_props">Folder Properties</div>
+      <label class="dialog-label" data-i18n="label.name">Name</label>
+      <input id="folder-name-input" placeholder="Folder name..." data-i18n-placeholder="ph.folder_name" />
+      <label class="dialog-label" data-i18n="label.icon">Icon</label>
       <div class="icon-picker" id="icon-picker"></div>
-      <label class="dialog-label">Entities</label>
+      <label class="dialog-label" data-i18n="label.entities">Entities</label>
       <div class="folder-entity-add">
         <div class="autocomplete-wrap" style="flex:1">
-          <input id="folder-entity-search" class="autocomplete-input" placeholder="Search entity to add..." autocomplete="off" />
+          <input id="folder-entity-search" class="autocomplete-input" placeholder="Search entity to add..." data-i18n-placeholder="ph.folder_entity" autocomplete="off" />
           <div class="autocomplete-list" id="folder-entity-search-list"></div>
         </div>
         <button class="accent" id="folder-add-entity-btn"><i class="mdi mdi-plus"></i></button>
       </div>
       <div id="folder-entity-list" class="list" style="max-height:120px;flex:none"></div>
       <div class="dialog-actions">
-        <button class="accent" id="folder-save-btn">Save</button>
-        <button id="folder-cancel-btn">Cancel</button>
-        <button class="danger" id="folder-delete-btn" style="margin-left:auto">Delete</button>
+        <button class="accent" id="folder-save-btn" data-i18n="btn.save">Save</button>
+        <button id="folder-cancel-btn" data-i18n="btn.cancel">Cancel</button>
+        <button class="danger" id="folder-delete-btn" style="margin-left:auto" data-i18n="btn.delete">Delete</button>
       </div>
     </div>
   </div>
 
-  <script src="static/app.js?v=0911"></script>
+  <script src="static/locale.js?v=0912"></script>
+  <script src="static/app.js?v=0912"></script>
 </body>
 </html>

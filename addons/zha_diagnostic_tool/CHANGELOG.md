@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.12] - 2026-02-27
+
+### Added
+- **i18n locale system**: new `locale.js` file with `ZHA_STRINGS.en` dictionary holding all user-visible UI strings. Add a new language block and set `window.ZHA_LANG` before the script loads to enable translation.
+- **`t()` helper** in `app.js`: retrieves a string by key from the active locale, falling back to English and then to the key itself.
+- **`applyLocale()`** in `app.js`: walks the DOM on `DOMContentLoaded` and applies `data-i18n` (textContent), `data-i18n-placeholder` (placeholder), and `data-i18n-title` (title) attributes.
+- **`data-i18n*` attributes**: all static user-visible strings in `index.html` are annotated (desktop shortcuts, window titles, KPI labels, button text, input placeholders, filter labels, tooltips, status text, dialog strings, sensor option labels, telemetry legend).
+- Dynamic strings in `app.js` now use `t()`: network map canvas text, battery empty-state messages, Device Helper loading/error messages, battery alert list empty state, notify entity selector placeholder, alert dialogs.
+
+### Changed
+- `README.md` translated to English (was in Polish).
+- `CHANGELOG.md` entries v0.1.0–v0.5.1 translated to English.
+- `app.js` version comment updated to v0.9.12.
+- Cache-bust bumped to `?v=0912` on CSS/JS includes.
+
 ## [0.9.11] - 2026-02-26
 
 ### Added
@@ -159,113 +174,113 @@
 ## [0.5.1] - 2026-02-23
 
 ### Fixed
-- Cache-busting: query param `?v=` na CSS/JS w HTML.
-- Middleware `no-cache` na static + index — przeglądarka/HA Ingress nie cachują starych plików.
-- Lepsze pozycje okien (cascade from top-left).
+- Cache-busting: added `?v=` query param to CSS/JS in HTML.
+- `no-cache` middleware on static + index — browser/HA Ingress no longer caches stale files.
+- Improved window default positions (cascade from top-left).
 
 ## [0.5.0] - 2026-02-23
 
 ### Changed
-- Prawdziwy desktop Win11: ikony na pulpicie otwierające pływające okna.
-- Window Manager: drag (przeciąganie za titlebar), close, minimize, maximize, focus.
-- Kliknięcie ikony na pulpicie otwiera okno, kliknięcie w taskbar toggle/focus.
-- Okna z animacją otwarcia (scale + opacity).
-- Taskbar z dynamicznym stanem open/focused (kropka pod ikoną).
-- Przycisk Start z ikoną Windows.
-- Tapeta desktop w stylu Win11 dark bloom gradient.
-- Null-safe setStatus — koniec crashy na starcie.
+- True Win11 desktop: shortcut icons on the desktop open floating windows.
+- Window Manager: drag (title-bar drag), close, minimize, maximize, focus.
+- Desktop icon click opens a window; taskbar click toggles/focuses.
+- Window open animation (scale + opacity).
+- Taskbar with dynamic open/focused state (dot under icon).
+- Start button with Windows logo icon.
+- Desktop wallpaper in Win11 dark bloom-gradient style.
+- Null-safe `setStatus` — no more crashes on start.
 
 ### Fixed
 - TypeError: Cannot set properties of null (setting 'textContent') at setStatus.
-- Canvas sync pomija ukryte okna (offsetParent === null).
+- Canvas sync skips hidden windows (`offsetParent === null`).
 
 ## [0.4.0] - 2026-02-23
 
 ### Changed
-- Pełna przebudowa UI na Windows 11 Fluent Design (Mica, Acrylic, WinUI 3).
-- Okna z prawdziwym window chrome (ikona + tytuł + min/max/close).
-- Taskbar na dole z ikonami aplikacji, zegarem i statusem.
-- Canvas rendering z DPR sync (ostre wykresy na HiDPI).
-- Re-write app.js: wyeliminowanie migotania, guard `loading`, null-safe DOM.
-- Telemetria z legendą kolorów.
+- Full UI rebuild to Windows 11 Fluent Design (Mica, Acrylic, WinUI 3).
+- Windows with real window chrome (icon + title + min/max/close).
+- Taskbar at the bottom with app icons, clock and status indicator.
+- Canvas rendering with DPR sync (sharp charts on HiDPI displays).
+- `app.js` rewrite: eliminated flickering, added loading guard, null-safe DOM.
+- Telemetry window with colour legend.
 
 ### Fixed
-- Auto-refresh nie crashuje na null elementach.
-- Lista switchy nie ma zagnieżdżonych `.right-actions`.
-- Okna Mirror i Sensor nie nakładają się (4-wierszowy grid).
+- Auto-refresh no longer crashes on null elements.
+- Switch list no longer has nested `.right-actions`.
+- Mirror and Sensor windows no longer overlap (4-row grid).
 
 ## [0.3.2] - 2026-02-23
 
 ### Fixed
-- Naprawa nakładania się okien Mirror i Sensor (obie miały ten sam grid-row).
-- Grid zmieniony na 4 wiersze — wszystkie okna widoczne jednocześnie.
-- Synchronizacja rozdzielczości canvasu z rozmiarem CSS (wyeliminowanie rozmytych wykresów).
-- Usunięcie zagnieżdżonych `.right-actions` w liście switchy (zduplikowane przyciski).
-- `.window-body` z `flex: 1` — listy poprawnie wypełniają przestrzeń.
+- Fixed overlap between Mirror and Sensor windows (both had the same grid-row).
+- Grid changed to 4 rows — all windows visible simultaneously.
+- Synchronised canvas resolution with CSS size (eliminated blurry charts).
+- Removed nested `.right-actions` in switch list (duplicated buttons).
+- `.window-body` with `flex: 1` — lists properly fill available space.
 
 ## [0.3.1] - 2026-02-23
 
 ### Added
-- Nowe okno Telemetria podzielone horyzontalnie:
-	- góra: wykres spike eventów (ZHA/state/call/log errors) w czasie rzeczywistym,
-	- dół: log eventów ZHA/systemowych na żywo.
+- New Telemetry window split horizontally:
+  - Top: real-time spike event chart (ZHA/state/call/log errors),
+  - Bottom: live ZHA/system event log.
 
 ### Fixed
-- Naprawa crasha UI: `Cannot set properties of null (setting 'innerHTML')`.
-- Uodpornienie frontendu na brakujące elementy DOM (null-safe rendering).
-- Rebalans layoutu desktop, aby okna były czytelniejsze i stabilniejsze.
+- Fixed UI crash: `Cannot set properties of null (setting 'innerHTML')`.
+- Hardened frontend against missing DOM elements (null-safe rendering).
+- Rebalanced desktop layout for more readable and stable windows.
 
 ## [0.3.0] - 2026-02-23
 
 ### Added
-- Full-screen desktop-style UI (Windows-like układ okien).
-- Wyszukiwarka encji ZHA i osobna wyszukiwarka switchy.
-- Widgety pulpitowe KPI (w tym PHI/P95 delay) oraz ulepszony wykres delay.
-- Osobna aplikacja/okno do linkowania mirror switchy (domyślnie bidirectional).
-- Reguły automatyzacji sensor-range -> switch action (w zakresie/poza zakresem).
+- Full-screen desktop-style UI (Windows-like window layout).
+- ZHA entity search and a separate switch search.
+- Desktop KPI widgets (including P95 delay) and improved delay chart.
+- Separate application/window for linking mirror switches (bidirectional by default).
+- Sensor-range → switch action automation rules (in-range/out-of-range).
 
 ### Changed
-- Rozszerzone API backendu o sensory, switche, sensor-rules i bardziej szczegółowy payload dashboardu.
+- Extended backend API: sensors, switches, sensor-rules, and more detailed dashboard payload.
 
 ## [0.2.2] - 2026-02-23
 
 ### Fixed
-- Naprawa ścieżek UI pod Home Assistant Ingress (relatywne `api/*` i `static/*`).
-- Dodano status połączenia i błędów backendu bezpośrednio w UI.
-- Włączono wymagane uprawnienia `hassio_api` i `homeassistant_api`.
-- Korekta URL websocket do `ws://supervisor/core/websocket`.
+- Fixed UI paths for Home Assistant Ingress (relative `api/*` and `static/*`).
+- Added backend connection and error status indicators in UI.
+- Enabled required `hassio_api` and `homeassistant_api` permissions.
+- Corrected WebSocket URL to `ws://supervisor/core/websocket`.
 
 ## [0.2.1] - 2026-02-23
 
 ### Fixed
-- Naprawa builda obrazu add-ona na Alpine (PEP 668 / externally managed environment).
-- Usunięto instalację `pip3 install aiohttp` z Dockerfile.
-- Zależność `aiohttp` dostarczana przez `apk` jako `py3-aiohttp`.
+- Fixed add-on image build on Alpine (PEP 668 / externally managed environment).
+- Removed `pip3 install aiohttp` from Dockerfile.
+- `aiohttp` dependency now delivered via `apk` as `py3-aiohttp`.
 
 ## [0.2.0] - 2026-02-23
 
 ### Added
-- Własny web UI add-ona dostępny przez Home Assistant Ingress.
-- Dashboard w stylistyce VSCode dark.
-- Wykres delay switch -> ack (Grafana-style).
-- API do odczytu dashboardu i sterowania switchami.
-- Obsługa reguł mirror (one-way / bidirectional) między switchami.
+- Custom add-on web UI accessible via Home Assistant Ingress.
+- Dashboard with VSCode dark styling.
+- Switch → ack delay chart (Grafana-style).
+- API for reading the dashboard and controlling switches.
+- Support for mirror rules (one-way / bidirectional) between switches.
 
 ### Changed
-- Przebudowa runtime add-ona z prostego skryptu bash na backend Python (`aiohttp`).
-- Nowy model konfiguracji add-ona pod monitoring eventowy.
+- Rebuilt add-on runtime from a simple bash script to a Python backend (`aiohttp`).
+- New add-on configuration model for event-based monitoring.
 
 ## [0.1.1] - 2026-02-23
 
 ### Added
-- Dodatkowa dokumentacja add-ona i procesu publikacji repo.
+- Additional add-on documentation and publishing process notes.
 
 ### Changed
-- Wersja add-on companion podbita do `0.1.1` (iteracja release/doc).
+- Add-on companion version bumped to `0.1.1` (release/doc iteration).
 
 ## [0.1.0] - 2026-02-23
 
 ### Added
-- Pierwsza iteracja add-on companion.
-- Cykliczny audyt logów Zigbee z konfigurowalnym interwałem.
-- Raportowanie potencjalnych błędów do logów add-ona.
+- First iteration of the add-on companion.
+- Periodic Zigbee log audit with a configurable interval.
+- Potential error reporting to add-on logs.

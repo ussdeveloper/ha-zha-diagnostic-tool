@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.8] - 2026-02-27
+
+### Added
+- i18n locale system (`locale.js`) with `ZHA_STRINGS.en` dictionary covering all user-visible UI strings. Add a new language block and set `window.ZHA_LANG` to enable a translation.
+- `t()` helper and `applyLocale()` in `app.js`; all static HTML strings annotated with `data-i18n`, `data-i18n-placeholder`, and `data-i18n-title` attributes.
+- Dynamic strings in `app.js` (network map, battery, Device Helper) now use `t()` for full translation coverage.
+
+### Changed
+- `README.md` (add-on) rewritten in English; CHANGELOG entries v0.1.0–v0.5.1 translated from Polish to English.
+- Cache-bust bumped to `?v=0912`.
+
 ## [0.10.7] - 2026-02-26
 
 ### Added
