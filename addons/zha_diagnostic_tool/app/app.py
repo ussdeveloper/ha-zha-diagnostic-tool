@@ -201,6 +201,7 @@ class DiagnosticRuntime:
                         "friendly_name": attrs.get("friendly_name", entity_id),
                         "icon": attrs.get("icon", "mdi:toggle-switch"),
                         "last_updated": item.get("last_updated"),
+                        "device_ieee": attrs.get("ieee") or attrs.get("device_ieee") or "",
                     }
                 )
 
@@ -227,6 +228,8 @@ class DiagnosticRuntime:
                         "lqi": self._extract_lqi(item),
                         "icon": attrs.get("icon", "mdi:zigbee"),
                         "last_updated": item.get("last_updated"),
+                        # IEEE of the physical Zigbee device (present in ZHA entity attrs)
+                        "device_ieee": attrs.get("ieee") or attrs.get("device_ieee") or "",
                     }
                 )
 

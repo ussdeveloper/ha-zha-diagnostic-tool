@@ -2308,10 +2308,58 @@ const ZCL_HELP = {
   }},
 };
 
+// Zigbee profile IDs → short name
+const ZB_PROFILES = {
+  260: "HA", 4: "IPMZ", 259: "SE", 263: "RS485", 264: "TA",
+  49246: "ZLL", 41440: "GP", 49152: "GP",
+};
+
+// Zigbee device type IDs → description (ZHA profile 260 + common ZLL)
+const ZB_DEVICE_TYPES = {
+  // Switches / controls
+  0x0000: "On/Off Switch", 0x0001: "Level Switch", 0x0002: "On/Off Output",
+  0x0003: "Level Output", 0x0006: "Media Player", 0x0007: "Remote",
+  0x000A: "Door Lock", 0x000B: "Door Lock Ctrl",
+  // Lights
+  0x0100: "On/Off Light", 0x0101: "Dimmable Light", 0x0102: "Color Light",
+  0x0103: "Light Switch", 0x0104: "Dimmer Switch", 0x0105: "Color Dimmer",
+  0x0110: "On/Off Plugin", 0x0111: "Dimmable Plugin", 0x0112: "Color Temp Plugin",
+  // Shade / blind
+  0x0200: "Shade", 0x0201: "Shade Controller", 0x0202: "Window Covering",
+  0x0203: "Window Covering Ctrl",
+  // HVAC
+  0x0300: "Heating/Cooling", 0x0301: "Thermostat", 0x0302: "Temp Sensor",
+  0x0303: "Pump", 0x0304: "Pump Ctrl", 0x0305: "Pressure Sensor",
+  0x0306: "Flow Sensor",
+  // IAS
+  0x0400: "IAS Zone", 0x0401: "IAS Siren", 0x0402: "IAS Ancillary",
+  0x0403: "IAS Control",
+  // Generic
+  0x0800: "Generic Controller", 0x0840: "Range Extender",
+  0x0850: "Smart Plug", 0x0851: "Metering Device",
+  // ZLL
+  0xE000: "ZLL Non-Color Remote", 0xE001: "ZLL Non-Color Scene Remote",
+  0xE002: "ZLL Color Remote", 0xE003: "ZLL Color Scene Remote",
+  0xE004: "ZLL Non-Color Controller", 0xE005: "ZLL Non-Color Scene Ctrl",
+  0xE006: "ZLL Color Controller", 0xE007: "ZLL Color Scene Ctrl",
+};
+
+function _zbDeviceTypeName(profile, devType) {
+  if (devType == null) return null;
+  const t = ZB_DEVICE_TYPES[devType];
+  if (t) return t;
+  return `0x${Number(devType).toString(16).padStart(4, "0")}`;
+}
+
+function _zbProfileName(profile) {
+  if (profile == null) return null;
+  return ZB_PROFILES[profile] || `0x${Number(profile).toString(16).padStart(4, "0")}`;
+}
+
 async function loadDevHelperDevices() {
   // Prefer already-fetched ZHA data (avoids extra WS round-trip)
   if (state.zhaDevicesFull.length) {
-    state.devHelperDevices = state.zhaDevicesFull.filter(d => !d.is_coordinator);
+    state.devHelperDevices = state.zhaDevicesFull.filter(d => !d.is_coordinator && d.device_type !== "Coordinator");
     renderDevHelperDevices();
     return;
   }
@@ -2368,10 +2416,56 @@ async function selectDevHelperDevice(dev) {
 
   const info = $("devhelper-device-info");
   if (info) {
+    const lqi = _devLqi(dev);
+    const lqiColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
+    const avail = dev.available === false
+      ? '<span style="color:#ff6b6b">● Unavailable</span>'
+      : '<span style="color:#6ccb5f">● Available</span>';
+
+    // Match related HA entities:
+    // 1. Primary: by device_ieee field (backend now includes it)
+    // 2. Fallback: by name slug
+    const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+    let related = allItems.filter(e => e.device_ieee && e.device_ieee === dev.ieee);
+    if (!related.length) {
+      const devName = (dev.user_given_name || dev.name || "").toLowerCase();
+      const slug = devName.replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      if (slug.length >= 4) {
+        related = allItems.filter(e => {
+          const n = (e.entity_id.split(".")[1] || "").toLowerCase();
+          return n === slug || n.startsWith(slug + "_") ||
+            (slug.length >= 6 && n.startsWith(slug.slice(0, slug.length - 2)));
+        });
+      }
+    }
+
+    const entityRows = related.map(e => {
+      const stateColor = e.state === "on" ? "#6ccb5f" : e.state === "unavailable" ? "#ff6b6b" : "#ffffff88";
+      const icon = (e.icon || "mdi:zigbee").replace("mdi:", "");
+      return `<div class="dev-entity-row" data-eid="${escapeHtml(e.entity_id)}" style="cursor:pointer">` +
+        `<i class="mdi mdi-${escapeHtml(icon)}"></i> ` +
+        `<span class="entity-sub">${escapeHtml(e.entity_id)}</span>` +
+        `<span style="margin-left:auto;font-size:11px;color:${stateColor}">${escapeHtml(e.state || "?")}</span>` +
+        `</div>`;
+    }).join("");
+
+    const quirk = dev.quirk_applied
+      ? `<div class="dev-detail" style="color:#60cdff"><i class="mdi mdi-puzzle"></i> Quirk: ${escapeHtml(dev.quirk_class || "applied")}</div>`
+      : "";
+
     info.innerHTML =
       `<div class="dev-name">${escapeHtml(dev.user_given_name || dev.name || dev.ieee)}</div>` +
-      `<div class="dev-detail">${escapeHtml(dev.manufacturer || "?")} \u00B7 ${escapeHtml(dev.model || "?")} \u00B7 IEEE: ${escapeHtml(dev.ieee || "")}</div>` +
-      `<div class="dev-detail">NWK: ${dev.nwk || "?"} \u00B7 Quirk: ${dev.quirk_applied ? "Yes" : "No"}</div>`;
+      `<div class="dev-detail">${escapeHtml(dev.manufacturer || "?")} · ${escapeHtml(dev.model || "?")} · ${avail}</div>` +
+      `<div class="dev-detail">IEEE: <code style="font-size:10px">${escapeHtml(dev.ieee || "")}</code> · NWK: ${escapeHtml(String(dev.nwk || "?"))} · LQI: <span style="color:${lqiColor};font-weight:bold">${lqi}</span></div>` +
+      quirk +
+      (entityRows ? `<div class="dev-detail" style="margin-top:6px;font-weight:600;color:#60cdff">HA Entities</div>${entityRows}` : `<div class="dev-detail" style="opacity:.5">No linked entities found</div>`);
+
+    info.querySelectorAll(".dev-entity-row[data-eid]").forEach(row => {
+      row.addEventListener("click", () => {
+        const entity = allItems.find(e => e.entity_id === row.dataset.eid);
+        if (entity) openDeviceDetail(entity);
+      });
+    });
   }
 
   const identBtn = $("devhelper-identify-btn");
@@ -2412,6 +2506,8 @@ async function loadDevHelperClusters(ieee) {
         endpoint_id: parseInt(epId, 10) || 1,
         in_clusters: inClusters,
         out_clusters: outClusters,
+        profile_id: ep.profile_id,
+        device_type: ep.device_type,
       };
     }
     renderDevHelperClusters(ieee, epMap);
@@ -2457,11 +2553,15 @@ function renderDevHelperClusters(ieee, clusterData) {
       ...outClusters.map(c => ({ ...c, cluster_type: "out" })),
     ];
 
-    if (endpoints.length > 1 || epId !== 1) {
+    {
+      const profileName = _zbProfileName(ep.profile_id);
+      const devTypeName = _zbDeviceTypeName(ep.profile_id, ep.device_type);
+      const epBadges = [profileName, devTypeName].filter(Boolean)
+        .map(t => `<span class="ep-badge">${escapeHtml(t)}</span>`).join("");
       const epHeader = document.createElement("div");
       epHeader.className = "row";
       epHeader.style.background = "var(--surface)";
-      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId}</div>`;
+      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId}${epBadges}</div>`;
       host.appendChild(epHeader);
     }
 

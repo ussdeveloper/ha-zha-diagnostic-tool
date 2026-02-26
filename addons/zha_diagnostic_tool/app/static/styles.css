@@ -1060,6 +1060,10 @@ button.danger:hover { background: #a62115; }
   background: rgba(96,205,255,0.1);
   border-left: 2px solid var(--accent);
 }
+.dev-entity-row { display:flex; align-items:center; gap:6px; padding:3px 8px; border-radius:4px; font-size:12px; }
+.dev-entity-row:hover { background: rgba(96,205,255,0.1); }
+.dev-entity-row .mdi { color: var(--accent); }
+.ep-badge { display:inline-block; background:rgba(96,205,255,0.15); color:#60cdff; border-radius:3px; padding:1px 5px; font-size:10px; margin-left:5px; vertical-align:middle; }
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {

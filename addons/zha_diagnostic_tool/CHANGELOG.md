@@ -1,5 +1,17 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.9] - 2026-02-27
+
+### Added
+- **DevHelper — endpoint header**: each endpoint now always shows a header with Zigbee profile name (e.g., "HA", "ZLL") and device type name (e.g., "On/Off Light") decoded from the ZHA device data.
+- **DevHelper — HA entity matching**: selecting a device now shows all related HA entities matched by `device_ieee` field (with name-slug fallback). Each entity row is clickable and opens the device detail panel.
+- **DevHelper — LQI colour indicator**: LQI is now colour-coded (green / yellow / red).
+- **Add-on icon**: added `icon.png` (512×512) and `logo.png` (512×200) for HA Supervisor add-on store.
+
+### Fixed
+- `zigbee_entities` and `switch_entities` now include `device_ieee` so the frontend can link entities to ZHA devices.
+- Coordinator excluded from DevHelper device list.
+
 ## [0.9.8] - 2026-02-26
 
 ### Fixed

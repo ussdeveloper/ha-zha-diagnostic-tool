@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.5] - 2026-02-27
+
+### Added
+- DevHelper endpoint headers now decode Zigbee profile ID and device type to human-readable names (e.g., "HA · On/Off Light").
+- DevHelper shows related HA entities matched by `device_ieee` with LQI colour-coding; entity rows clickable.
+- `icon.png` (512×512) and `logo.png` added to add-on directory for HA store display.
+
+### Fixed
+- `device_ieee` now included in backend entity payloads enabling correct device→entity linking.
+- Coordinator excluded from DevHelper device list.
+
 ## [0.10.4] - 2026-02-26
 
 ### Fixed
