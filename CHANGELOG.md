@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.6] - 2026-02-26
+
+### Improved
+- Network map: label + LQI badges have dark pill backgrounds for readability.
+- Network map: edge opacity scales down when zoomed in, reducing visual noise.
+- Network map: viewport culling skips off-screen nodes.
+- Network map: model ID shown below device name at zoom > 2.5×.
+
 ## [0.10.5] - 2026-02-27
 
 ### Added

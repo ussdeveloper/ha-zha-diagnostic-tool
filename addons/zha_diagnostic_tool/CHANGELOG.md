@@ -1,5 +1,13 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.10] - 2026-02-26
+
+### Improved
+- **Network Map — label readability**: node name and LQI badge now have a dark semi-transparent pill background so text is always legible regardless of what’s drawn underneath.
+- **Network Map — zoom transparency**: edges fade when zoomed in (alpha scales down ~30% per 2× zoom) so the focused nodes’ data is cleaner to read.
+- **Network Map — viewport culling**: nodes outside the current view are skipped during rendering (performance).
+- **Network Map — high-zoom detail**: at zoom > 2.5×, the device model ID appears below the label.
+
 ## [0.9.9] - 2026-02-27
 
 ### Added

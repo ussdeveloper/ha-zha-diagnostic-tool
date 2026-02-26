@@ -1352,6 +1352,13 @@ function renderNetworkMap() {
 
   // Draw edges — coordinator lives at world-space (0,0); dedup symmetric pairs
   const _coordDev = state.zhaDevicesFull.find(d => d.is_coordinator || d.device_type === "Coordinator");
+  // Viewport bounds for culling (world-space, generous margin for labels)
+  const _vMinX = (-w/2 - nm.panX * dpr) / nm.zoom - 80*dpr;
+  const _vMaxX = ( w/2 - nm.panX * dpr) / nm.zoom + 80*dpr;
+  const _vMinY = (-h/2 - nm.panY * dpr) / nm.zoom - 80*dpr;
+  const _vMaxY = ( h/2 - nm.panY * dpr) / nm.zoom + 80*dpr;
+  // Edges fade when zoomed in — less noise, data in frame is more readable
+  const _edgeAlpha = Math.max(0.18, Math.min(1.0, 1.0 / (nm.zoom * 0.7)));
   const _drawnEdges = new Set();
   for (const node of nm.nodes) {
     const lqi = _devLqi(node.dev);
@@ -1370,9 +1377,9 @@ function renderNetworkMap() {
         const tx = isCoordTarget ? 0 : target.x;
         const ty = isCoordTarget ? 0 : target.y;
         const nbLqi = nb.lqi ?? 128;
-        const edgeColor = nbLqi > 180 ? "rgba(108,203,95,0.45)"
-          : nbLqi > 100 ? "rgba(252,225,0,0.35)"
-          : "rgba(255,107,107,0.28)";
+        const edgeColor = nbLqi > 180 ? `rgba(108,203,95,${(0.45 * _edgeAlpha).toFixed(2)})`
+          : nbLqi > 100 ? `rgba(252,225,0,${(0.35 * _edgeAlpha).toFixed(2)})`
+          : `rgba(255,107,107,${(0.28 * _edgeAlpha).toFixed(2)})`;
         ctx.strokeStyle = edgeColor;
         ctx.lineWidth = (nbLqi > 180 ? 1.8 : nbLqi > 100 ? 1.2 : 0.8) * dpr;
         ctx.setLineDash(nbLqi > 180 ? [] : [4*dpr, 4*dpr]);
@@ -1384,7 +1391,7 @@ function renderNetworkMap() {
       }
     } else {
       // Fallback: line to coordinator (device has no neighbor data yet)
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = 0.35 * _edgeAlpha;
       ctx.strokeStyle = lineColor;
       ctx.lineWidth = (lqi > 180 ? 1.5 : 1) * dpr;
       ctx.setLineDash([]);
@@ -1427,6 +1434,8 @@ function renderNetworkMap() {
   // Draw device nodes
   for (const node of nm.nodes) {
     const dev = node.dev;
+    // Viewport culling — skip nodes fully outside visible area
+    if (node.x < _vMinX || node.x > _vMaxX || node.y < _vMinY || node.y > _vMaxY) continue;
     const lqi = _devLqi(dev);
     const nodeColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
     const isRouter = dev.device_type === "Router" || dev.power_source_str?.includes("Main");
@@ -1457,18 +1466,51 @@ function renderNetworkMap() {
       ctx.stroke();
     }
 
-    // Device name
+    // Device name — dark pill background so label is readable over any edge/color
     const label = (dev.user_given_name || dev.name_by_user || dev.name || dev.ieee || "?").slice(0, 22);
-    ctx.fillStyle = "#ffffffde";
+    const labelY = node.y + radius + 12 * dpr;
+    const _lPad = 3 * dpr;
     ctx.font = `${9.5 * dpr}px Segoe UI`;
     ctx.textAlign = "center";
-    ctx.fillText(label, node.x, node.y + radius + 12 * dpr);
+    const _lW = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(13,17,23,0.72)";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(node.x - _lW/2 - _lPad, labelY - 10*dpr, _lW + _lPad*2, 13*dpr, 3*dpr);
+    else ctx.rect(node.x - _lW/2 - _lPad, labelY - 10*dpr, _lW + _lPad*2, 13*dpr);
+    ctx.fill();
+    ctx.fillStyle = "#ffffffde";
+    ctx.fillText(label, node.x, labelY);
 
-    // LQI badge
+    // LQI badge — pill background
     if (lqi != null) {
-      ctx.fillStyle = nodeColor;
+      const lqiText = `LQI ${lqi}`;
+      const lqiY = labelY + 11 * dpr;
       ctx.font = `bold ${8 * dpr}px Segoe UI`;
-      ctx.fillText(`LQI ${lqi}`, node.x, node.y + radius + 21 * dpr);
+      const _lqiW = ctx.measureText(lqiText).width;
+      ctx.fillStyle = "rgba(13,17,23,0.55)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(node.x - _lqiW/2 - _lPad, lqiY - 9*dpr, _lqiW + _lPad*2, 11*dpr, 3*dpr);
+      else ctx.rect(node.x - _lqiW/2 - _lPad, lqiY - 9*dpr, _lqiW + _lPad*2, 11*dpr);
+      ctx.fill();
+      ctx.fillStyle = nodeColor;
+      ctx.fillText(lqiText, node.x, lqiY);
+    }
+
+    // At high zoom: show model id below label
+    if (nm.zoom > 2.5) {
+      const model = (dev.model || dev.model_id || "").slice(0, 20);
+      if (model) {
+        const modelY = labelY + (lqi != null ? 22 : 12) * dpr;
+        ctx.font = `${7.5 * dpr}px Segoe UI`;
+        const _mW = ctx.measureText(model).width;
+        ctx.fillStyle = "rgba(13,17,23,0.55)";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(node.x - _mW/2 - _lPad, modelY - 8*dpr, _mW + _lPad*2, 10*dpr, 3*dpr);
+        else ctx.rect(node.x - _mW/2 - _lPad, modelY - 8*dpr, _mW + _lPad*2, 10*dpr);
+        ctx.fill();
+        ctx.fillStyle = "rgba(96,205,255,0.8)";
+        ctx.fillText(model, node.x, modelY);
+      }
     }
 
     // Device type badge
