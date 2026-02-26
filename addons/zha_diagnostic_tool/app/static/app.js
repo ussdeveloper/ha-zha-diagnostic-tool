@@ -1783,7 +1783,7 @@ function renderZigbeeLogs() {
       const baseType = item.type?.startsWith("log_") ? "log_error" : item.type;
       if (!filters[baseType]) return false;
     }
-    if (q && !`${item.ieee || ""} ${item.type || ""} ${item.raw || ""}`.toLowerCase().includes(q)) return false;
+    if (q && !`${item.ieee || ""} ${item.type || ""} ${typeof item.raw === "string" ? item.raw : JSON.stringify(item.raw ?? "")}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -1807,7 +1807,7 @@ function renderZigbeeLogs() {
       `<div class="entity-title"><i class="mdi ${icon}"></i> ${escapeHtml(item.type || "unknown")}` +
       (item.ieee ? ` <span class="entity-sub" style="margin:0 0 0 6px">${escapeHtml(item.ieee)}</span>` : "") +
       `</div>` +
-      `<div class="entity-sub">${escapeHtml((item.raw || "").slice(0, 100))}</div>` +
+      `<div class="entity-sub">${escapeHtml(String(item.raw ?? "").slice(0, 100))}</div>` +
       `</div>` +
       `<div class="entity-sub" style="flex-shrink:0">${fmtDate(item.ts)}</div>`;
 

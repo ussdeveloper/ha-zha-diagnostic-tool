@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.4] - 2026-02-26
+
+### Fixed
+- `item.raw.slice` crash in Zigbee Logs when raw value is non-string.
+- HA `system_log_event` message list coercion on Python backend.
+- CSS/JS cache-bust version mismatch (synchronized at v098).
+
 ## [0.10.3] - 2026-02-25
 
 ### Fixed

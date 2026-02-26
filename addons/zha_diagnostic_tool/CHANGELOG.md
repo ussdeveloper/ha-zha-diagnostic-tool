@@ -1,5 +1,12 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.8] - 2026-02-26
+
+### Fixed
+- **Zigbee Logs — `item.raw.slice is not a function` crash**: `item.raw` is now coerced via `String(item.raw ?? "")` before `.slice()`. Also fixed the search filter to use `JSON.stringify` fallback for non-string raw values.
+- **Python — `system_log_event` message as list**: HA sometimes delivers `message` as a `list[str]` in system log events. The server now joins list messages with a space before storing, preventing `[object Object]` appearing in logs.
+- **Cache-bust mismatch**: `styles.css` version tag was stuck at `v=091`. Synchronized with `app.js` at `v=098`.
+
 ## [0.9.7] - 2026-02-25
 
 ### Fixed

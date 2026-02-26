@@ -490,7 +490,12 @@ class DiagnosticRuntime:
                         "ieee": "",
                         "command": "",
                         "lqi": None,
-                        "raw": str(event_data.get("message", ""))[:300],
+                        # HA system_log_event sometimes has message as a list
+                        "raw": (
+                            " ".join(event_data["message"])
+                            if isinstance(event_data.get("message"), list)
+                            else str(event_data.get("message", ""))
+                        )[:300],
                     })
             category = "log_error" if level in {"error", "warning", "critical"} else "other"
 
