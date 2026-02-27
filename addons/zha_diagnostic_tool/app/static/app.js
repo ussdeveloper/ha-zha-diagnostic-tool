@@ -37,7 +37,7 @@ const state = {
   refreshTimer: null,
   loading: false,
   folders: JSON.parse(localStorage.getItem("zha_desktop_folders") || "[]"),
-  netMap: { zoom: 1, panX: 0, panY: 0 },
+  netMap: { zoom: 1, panX: 0, panY: 0, hoverNode: null },
   deviceWinCount: 0,
   devHelperDevices: [],
   devHelperSelected: null,
@@ -1272,6 +1272,15 @@ function openDeviceDetail(entityItem) {
         right.appendChild(makeBtn("ON", () => switchAction(e.entity_id, "turn_on")));
         right.appendChild(makeBtn("OFF", () => switchAction(e.entity_id, "turn_off")));
       }
+      // Sensor history chart button
+      if (e.entity_id.startsWith("sensor.")) {
+        const hBtn = document.createElement("button");
+        hBtn.className = "sensor-history-btn";
+        hBtn.title = "Show history chart";
+        hBtn.innerHTML = '<i class="mdi mdi-chart-line"></i>';
+        hBtn.addEventListener("click", (ev) => { ev.stopPropagation(); openSensorHistoryChart(e); });
+        right.appendChild(hBtn);
+      }
       row.appendChild(right);
       entHost.appendChild(row);
     }
@@ -1307,6 +1316,209 @@ function openDeviceDetail(entityItem) {
   }
 
   WM.open(winId);
+}
+
+/* ========================================================
+   SENSOR HISTORY CHART
+   ======================================================== */
+
+const HISTORY_PERIODS = [
+  { key: "24h", label: "24h" },
+  { key: "7d", label: "7 days" },
+  { key: "30d", label: "30 days" },
+  { key: "5mo", label: "5 months" },
+];
+
+function openSensorHistoryChart(entity) {
+  const eid = entity.entity_id;
+  const winId = `hist-${eid.replace(/[^a-z0-9_]/gi, "_")}`;
+  if ($(winId)) { WM.open(winId); WM.focus(winId); return; }
+
+  const friendly = entity.friendly_name || eid;
+  const win = document.createElement("section");
+  win.className = "window";
+  win.id = winId;
+  win.innerHTML = `
+    <div class="window-titlebar">
+      <i class="mdi mdi-chart-line win-icon"></i>
+      <span class="win-title">${escapeHtml(friendly)} — History</span>
+      <div class="window-controls">
+        <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+        <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+        <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+      </div>
+    </div>
+    <div class="window-body history-chart-wrap">
+      <div class="history-range-slider">
+        <span id="${winId}-label">24h</span>
+        <input type="range" id="${winId}-range" min="0" max="3" step="1" value="0">
+      </div>
+      <canvas id="${winId}-canvas" style="flex:1;width:100%;min-height:200px;border-radius:6px;background:#161b22"></canvas>
+      <div id="${winId}-status" class="entity-sub" style="text-align:center"></div>
+    </div>
+    <div class="resize-handle"></div>`;
+
+  $("desktop").appendChild(win);
+  WM.defaults[winId] = { w: 560, h: 360, x: 200, y: 80 };
+  win.style.width = "560px";
+  win.style.height = "360px";
+  win.style.left = "200px";
+  win.style.top = "80px";
+  WM._makeDraggable(win);
+  WM._makeResizable(win);
+
+  win.querySelector(".win-ctrl.close").addEventListener("click", () => {
+    WM.close(winId);
+    setTimeout(() => { win.remove(); delete WM.defaults[winId]; }, 200);
+  });
+  win.querySelector(".win-ctrl.minimize").addEventListener("click", () => WM.close(winId));
+  win.querySelector(".win-ctrl.maximize").addEventListener("click", () => WM.toggleMax(winId));
+  win.addEventListener("mousedown", () => WM.focus(winId));
+
+  const rangeEl = $(`${winId}-range`);
+  const labelEl = $(`${winId}-label`);
+  const statusEl = $(`${winId}-status`);
+  const canvas = $(`${winId}-canvas`);
+
+  let currentPoints = [];
+
+  const fetchAndDraw = async () => {
+    const idx = parseInt(rangeEl.value, 10);
+    const period = HISTORY_PERIODS[idx];
+    labelEl.textContent = period.label;
+    statusEl.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Loading...';
+    try {
+      const data = await api(`api/entity-history/${encodeURIComponent(eid)}?period=${period.key}`);
+      currentPoints = data.points || [];
+      statusEl.textContent = `${currentPoints.length} data points`;
+      drawHistoryChart(canvas, currentPoints, friendly, entity.unit_of_measurement || "");
+    } catch (e) {
+      statusEl.textContent = `Error: ${e.message}`;
+      currentPoints = [];
+    }
+  };
+
+  rangeEl.addEventListener("input", fetchAndDraw);
+
+  // Redraw on resize
+  const ro = new ResizeObserver(() => {
+    if (currentPoints.length) drawHistoryChart(canvas, currentPoints, friendly, entity.unit_of_measurement || "");
+  });
+  ro.observe(canvas);
+
+  WM.open(winId);
+  fetchAndDraw();
+}
+
+function drawHistoryChart(canvas, points, title, unit) {
+  syncCanvas(canvas);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  if (w === 0 || h === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.clearRect(0, 0, w, h);
+  // Background
+  ctx.fillStyle = "#161b22";
+  ctx.fillRect(0, 0, w, h);
+
+  if (!points.length) {
+    ctx.fillStyle = "#8b949e";
+    ctx.font = `${12 * dpr}px Segoe UI, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText("No data", w / 2, h / 2);
+    return;
+  }
+
+  const pad = { top: 30 * dpr, right: 16 * dpr, bottom: 36 * dpr, left: 56 * dpr };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  // Parse timestamps and values
+  const parsed = points.map(p => ({ t: new Date(p.ts).getTime(), v: p.v })).filter(p => !isNaN(p.t));
+  if (!parsed.length) return;
+  parsed.sort((a, b) => a.t - b.t);
+
+  const tMin = parsed[0].t, tMax = parsed[parsed.length - 1].t;
+  let vMin = Infinity, vMax = -Infinity;
+  for (const p of parsed) { if (p.v < vMin) vMin = p.v; if (p.v > vMax) vMax = p.v; }
+  if (vMin === vMax) { vMin -= 1; vMax += 1; }
+  const vPad = (vMax - vMin) * 0.08;
+  vMin -= vPad; vMax += vPad;
+  const tRange = Math.max(tMax - tMin, 1);
+
+  const toX = t => pad.left + ((t - tMin) / tRange) * plotW;
+  const toY = v => pad.top + (1 - (v - vMin) / (vMax - vMin)) * plotH;
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  const ySteps = 5;
+  for (let i = 0; i <= ySteps; i++) {
+    const y = pad.top + (plotH / ySteps) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+  }
+
+  // Y-axis labels
+  ctx.fillStyle = "#8b949e";
+  ctx.font = `${10 * dpr}px Segoe UI, sans-serif`;
+  ctx.textAlign = "right";
+  for (let i = 0; i <= ySteps; i++) {
+    const y = pad.top + (plotH / ySteps) * i;
+    const val = vMax - (i / ySteps) * (vMax - vMin);
+    ctx.fillText(val.toFixed(1), pad.left - 6 * dpr, y + 3 * dpr);
+  }
+
+  // X-axis labels (time)
+  ctx.textAlign = "center";
+  const xSteps = Math.min(6, parsed.length);
+  for (let i = 0; i <= xSteps; i++) {
+    const t = tMin + (tRange / xSteps) * i;
+    const x = toX(t);
+    const d = new Date(t);
+    const fmt = tRange > 86400000 * 2 ? `${d.getMonth() + 1}/${d.getDate()}` : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    ctx.fillText(fmt, x, h - pad.bottom + 16 * dpr);
+  }
+
+  // Gradient fill under curve
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+  grad.addColorStop(0, "rgba(96,205,255,0.25)");
+  grad.addColorStop(1, "rgba(96,205,255,0.02)");
+
+  ctx.beginPath();
+  ctx.moveTo(toX(parsed[0].t), pad.top + plotH);
+  for (const p of parsed) ctx.lineTo(toX(p.t), toY(p.v));
+  ctx.lineTo(toX(parsed[parsed.length - 1].t), pad.top + plotH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  for (let i = 0; i < parsed.length; i++) {
+    const x = toX(parsed[i].t), y = toY(parsed[i].v);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "#60cdff";
+  ctx.lineWidth = 2 * dpr;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  // Dots for sparse data
+  if (parsed.length < 60) {
+    ctx.fillStyle = "#60cdff";
+    for (const p of parsed) {
+      ctx.beginPath();
+      ctx.arc(toX(p.t), toY(p.v), 2.5 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Title + unit
+  ctx.fillStyle = "#e6edf3";
+  ctx.font = `bold ${12 * dpr}px Segoe UI, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.fillText(`${title}${unit ? " (" + unit + ")" : ""}`, pad.left, 18 * dpr);
 }
 
 /* ========================================================
@@ -1366,8 +1578,8 @@ function renderNetworkMap() {
     const count = devices.length;
 
     // Scale radii to available canvas area (world-space pixels)
-    const canvasR = Math.min(w, h) * 0.35; // use 35% of smaller canvas dimension
-    const baseR = Math.max(canvasR * 0.3, 80 * dpr);
+    const canvasR = Math.min(w, h) * 0.42; // use 42% of smaller dimension for wider spread
+    const baseR = Math.max(canvasR * 0.35, 100 * dpr);
 
     // Separate routers and end-devices for layered ring placement
     const routers = devices.filter(d => d.device_type === "Router" || (d.power_source_str || "").includes("Main"));
@@ -1389,17 +1601,17 @@ function renderNetworkMap() {
     // Routers in inner ring
     const rCount = Math.max(routers.length, 1);
     const rAngleStep = (2 * Math.PI) / rCount;
-    const rRadius = baseR + rCount * 8 * dpr;
+    const rRadius = baseR + rCount * 12 * dpr;
     for (let i = 0; i < routers.length; i++) {
       const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.25;
-      const r = rRadius + (_srand() - 0.5) * 30 * dpr;
+      const r = rRadius + (_srand() - 0.5) * 40 * dpr;
       nodes.push({ dev: routers[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, vx: 0, vy: 0 });
     }
 
     // End-devices in outer ring — near parent router if topology available
     const eCount = Math.max(endDevices.length, 1);
     const eAngleStep = (2 * Math.PI) / eCount;
-    const eRadius = rRadius + baseR * 0.7;
+    const eRadius = rRadius + baseR * 0.9;
     for (let i = 0; i < endDevices.length; i++) {
       const dev = endDevices[i];
       const devNbs = nbMap.get(dev.ieee) || [];
@@ -1597,11 +1809,59 @@ function renderNetworkMap() {
       ctx.font = `${7.5 * dpr}px Segoe UI`;
       ctx.fillText("R", node.x, node.y + 3 * dpr);
     }
+
+    // Hover highlight ring
+    if (nm.hoverNode === node) {
+      ctx.save();
+      ctx.strokeStyle = "#60cdff";
+      ctx.lineWidth = 2.5 * dpr;
+      ctx.shadowColor = "#60cdff";
+      ctx.shadowBlur = 12 * dpr;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 6 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Hover tooltip (drawn in world space, after all nodes)
+  if (nm.hoverNode) {
+    const hn = nm.hoverNode;
+    const dev = hn.dev;
+    const tipLines = [
+      dev.user_given_name || dev.name || dev.ieee || "?",
+      `${dev.manufacturer || "?"} · ${dev.model || "?"}`,
+      `IEEE: ${dev.ieee || "?"}  NWK: ${dev.nwk || "?"}`,
+      `LQI: ${_devLqi(dev)}  Type: ${dev.device_type || "?"}`,
+    ];
+    const tipFont = 9.5 * dpr;
+    ctx.font = `${tipFont}px Segoe UI`;
+    const tipPad = 8 * dpr;
+    const lineH = tipFont * 1.4;
+    let maxW = 0;
+    for (const l of tipLines) maxW = Math.max(maxW, ctx.measureText(l).width);
+    const tipW = maxW + tipPad * 2;
+    const tipH = tipLines.length * lineH + tipPad * 2;
+    const tipX = hn.x + 18 * dpr;
+    const tipY = hn.y - tipH / 2;
+    ctx.fillStyle = "rgba(13,17,23,0.92)";
+    ctx.strokeStyle = "rgba(96,205,255,0.4)";
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(tipX, tipY, tipW, tipH, 6 * dpr);
+    else ctx.rect(tipX, tipY, tipW, tipH);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffffffdd";
+    ctx.textAlign = "left";
+    for (let i = 0; i < tipLines.length; i++) {
+      ctx.fillStyle = i === 0 ? "#60cdff" : "#ffffffbb";
+      if (i === 0) ctx.font = `bold ${tipFont}px Segoe UI`;
+      else ctx.font = `${tipFont}px Segoe UI`;
+      ctx.fillText(tipLines[i], tipX + tipPad, tipY + tipPad + lineH * (i + 0.8));
+    }
   }
 
   ctx.restore();
-
-  // Info bar (top-left, below scan button)
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.font = `${9 * dpr}px Segoe UI`;
   ctx.textAlign = "left";
@@ -1781,16 +2041,16 @@ function _devLqi(dev) {
 function _forceStep(nodes, dpr, damping) {
   const n = nodes.length;
   if (!n) return;
-  // Minimum desired spacing between nodes (adapts to network size)
-  const idealDist = Math.max(60, 120 - n * 0.8) * dpr;
-  const repel = 3000 * dpr;
-  const attractK = 0.015;
-  const centerK = 0.001; // very weak center gravity — just prevents drift
+  // Minimum desired spacing — much wider to prevent label overlap
+  const idealDist = Math.max(90, 160 - n * 0.6) * dpr;
+  const repel = 5000 * dpr; // stronger repulsion
+  const attractK = 0.012;
+  const centerK = 0.0005; // very weak center gravity — just prevents infinite drift
   if (damping == null) damping = 0.5;
 
   for (const a of nodes) {
     a.vx *= damping; a.vy *= damping;
-    // Weak center gravity
+    // Very weak center gravity
     a.vx -= a.x * centerK;
     a.vy -= a.y * centerK;
     // Repulsion between all pairs
@@ -1803,9 +2063,9 @@ function _forceStep(nodes, dpr, damping) {
       // Coulomb-style repulsion
       a.vx += nx * repel / d2;
       a.vy += ny * repel / d2;
-      // Hard push-apart if overlapping
+      // Hard push-apart if overlapping — very strong within idealDist
       if (dist < idealDist) {
-        const push = (idealDist - dist) * 0.6;
+        const push = (idealDist - dist) * 0.8;
         a.vx += nx * push;
         a.vy += ny * push;
       }
@@ -1819,8 +2079,8 @@ function _forceStep(nodes, dpr, damping) {
       if (!target) continue;
       const dx = target.x - a.x, dy = target.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy + 1);
-      // Spring — attract when far, nothing when near ideal distance
-      if (dist > idealDist * 1.2) {
+      // Spring — attract when far from ideal distance
+      if (dist > idealDist * 1.5) {
         const strength = attractK * (dist - idealDist);
         a.vx += (dx / dist) * strength;
         a.vy += (dy / dist) * strength;
@@ -1858,20 +2118,99 @@ function initNetworkMap() {
   }, { passive: false });
 
   let dragging = false, sx = 0, sy = 0, spx = 0, spy = 0;
+
+  // Helper: convert CSS mouse coords → world space coords
+  function _mouseToWorld(e) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const canvasX = (e.clientX - rect.left) * dpr;
+    const canvasY = (e.clientY - rect.top) * dpr;
+    const cw = canvas.width, ch = canvas.height;
+    return {
+      worldX: (canvasX - cw / 2 - nm.panX * dpr) / nm.zoom,
+      worldY: (canvasY - ch / 2 - nm.panY * dpr) / nm.zoom,
+      cssX: e.clientX - rect.left,
+      cssY: e.clientY - rect.top,
+      canvasW: rect.width,
+      canvasH: rect.height,
+      dpr,
+    };
+  }
+
+  // Helper: check if click is on minimap area (bottom-right)
+  function _isOnMinimap(cssX, cssY, canvasW, canvasH) {
+    const mmW = 140, mmH = 90, mmPad = 8;
+    return cssX >= canvasW - mmW - mmPad && cssY >= canvasH - mmH - mmPad;
+  }
+
+  // Helper: convert minimap CSS click → world coords, then pan there
+  function _minimapClick(cssX, cssY, canvasW, canvasH) {
+    if (!nm.nodes || !nm.nodes.length) return;
+    const mmW = 140, mmH = 90, mmPad = 8;
+    const mmX = canvasW - mmW - mmPad, mmY = canvasH - mmH - mmPad;
+    // Normalized position within minimap (0..1)
+    const nx = (cssX - mmX) / mmW;
+    const ny = (cssY - mmY) / mmH;
+    // Get world bounding box
+    let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+    const dpr = window.devicePixelRatio || 1;
+    for (const n of nm.nodes) { mnX = Math.min(mnX, n.x); mxX = Math.max(mxX, n.x); mnY = Math.min(mnY, n.y); mxY = Math.max(mxY, n.y); }
+    mnX = Math.min(mnX, -20*dpr); mxX = Math.max(mxX, 20*dpr);
+    mnY = Math.min(mnY, -20*dpr); mxY = Math.max(mxY, 20*dpr);
+    const cxW = (mnX + mxX) / 2, cyW = (mnY + mxY) / 2;
+    const rangeX = mxX - mnX || 1, rangeY = mxY - mnY || 1;
+    const mmInnerPad = 8;
+    const scaleX = (mmW * dpr - 2*mmInnerPad*dpr) / rangeX;
+    const scaleY = (mmH * dpr - 2*mmInnerPad*dpr) / rangeY;
+    const mmScale = Math.min(scaleX, scaleY);
+    // World coordinate that was clicked
+    const targetWX = cxW + ((nx - 0.5) * mmW * dpr) / mmScale;
+    const targetWY = cyW + ((ny - 0.5) * mmH * dpr) / mmScale;
+    // Pan so that world point is at viewport center
+    nm.panX = -targetWX * nm.zoom / dpr;
+    nm.panY = -targetWY * nm.zoom / dpr;
+    renderNetworkMap();
+  }
+
   canvas.addEventListener("mousedown", (e) => {
+    const m = _mouseToWorld(e);
+    // If clicking on minimap, pan to that location
+    if (_isOnMinimap(m.cssX, m.cssY, m.canvasW, m.canvasH)) {
+      _minimapClick(m.cssX, m.cssY, m.canvasW, m.canvasH);
+      return;
+    }
     dragging = true;
     sx = e.clientX; sy = e.clientY;
     spx = nm.panX; spy = nm.panY;
     canvas.style.cursor = "grabbing";
   });
   document.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    nm.panX = spx + (e.clientX - sx);
-    nm.panY = spy + (e.clientY - sy);
-    renderNetworkMap();
+    if (dragging) {
+      nm.panX = spx + (e.clientX - sx);
+      nm.panY = spy + (e.clientY - sy);
+      renderNetworkMap();
+      return;
+    }
+    // Hover detection (only when not dragging)
+    if (!nm.nodes || !nm.nodes.length) return;
+    const rect = canvas.getBoundingClientRect();
+    // Only handle if mouse is over the canvas
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+    const m = _mouseToWorld(e);
+    const hitR = 20 * m.dpr / nm.zoom;
+    let found = null;
+    for (const node of nm.nodes) {
+      const dx = node.x - m.worldX, dy = node.y - m.worldY;
+      if (dx * dx + dy * dy < hitR * hitR) { found = node; break; }
+    }
+    if (found !== nm.hoverNode) {
+      nm.hoverNode = found;
+      canvas.style.cursor = found ? "pointer" : "grab";
+      renderNetworkMap();
+    }
   });
   document.addEventListener("mouseup", () => {
-    if (dragging) { dragging = false; canvas.style.cursor = "grab"; }
+    if (dragging) { dragging = false; canvas.style.cursor = nm.hoverNode ? "pointer" : "grab"; }
   });
 
   // Double-click: if on a node — open device window; otherwise reset view
@@ -2787,9 +3126,6 @@ function renderDevHelperClusters(ieee, clusterData) {
     return s.startsWith("0x") ? parseInt(s, 16) : parseInt(s, 10);
   };
 
-  // Auto-expand first endpoint if ≤2 endpoints
-  const autoExpandFirst = endpoints.length <= 2;
-
   for (let epIdx = 0; epIdx < endpoints.length; epIdx++) {
     const ep = endpoints[epIdx];
     const epId = ep.endpoint_id ?? ep.id ?? 1;
@@ -2800,75 +3136,105 @@ function renderDevHelperClusters(ieee, clusterData) {
       ...outClusters.map(c => ({ ...c, cluster_type: c.cluster_type || "out" })),
     ];
 
-    {
-      const profileName = _zbProfileName(_pid(ep.profile_id));
-      const devTypeName = _zbDeviceTypeName(_pid(ep.profile_id), _pid(ep.device_type));
-      const clusterCount = allClusters.length;
-      const inCount = inClusters.length;
-      const outCount = outClusters.length;
-      const badges = [profileName, devTypeName].filter(Boolean)
-        .map(t => `<span class="ep-badge">${escapeHtml(t)}</span>`).join("");
-      const epHeader = document.createElement("div");
-      epHeader.className = "ep-header";
-      epHeader.innerHTML = `<i class="mdi mdi-chip" style="color:var(--accent)"></i> <strong>Endpoint ${epId}</strong> ${badges} <span class="entity-sub" style="margin-left:6px">${inCount} in · ${outCount} out</span>`;
-      host.appendChild(epHeader);
+    // Endpoint header with profile/device type info
+    const profileId = _pid(ep.profile_id);
+    const devTypeId = _pid(ep.device_type);
+    const profileName = _zbProfileName(profileId);
+    const devTypeName = _zbDeviceTypeName(profileId, devTypeId);
+    const inCount = inClusters.length;
+    const outCount = outClusters.length;
+    const badges = [profileName, devTypeName].filter(Boolean)
+      .map(b => `<span class="ep-badge">${escapeHtml(b)}</span>`).join("");
+
+    const epHeader = document.createElement("div");
+    epHeader.className = "ep-header";
+    epHeader.innerHTML =
+      `<i class="mdi mdi-chip" style="color:var(--accent)"></i> ` +
+      `<strong>Endpoint ${epId}</strong> ${badges} ` +
+      `<span class="entity-sub" style="margin-left:6px">${inCount} in · ${outCount} out</span>`;
+    host.appendChild(epHeader);
+
+    if (!allClusters.length) {
+      const noC = document.createElement("div");
+      noC.className = "entity-sub";
+      noC.style.padding = "6px 12px";
+      noC.textContent = "No clusters on this endpoint";
+      host.appendChild(noC);
+      continue;
     }
 
     for (const cluster of allClusters) {
       const cId = _pid(cluster.id ?? cluster.cluster_id ?? 0) || 0;
-      const cName = cluster.name || ZCL_HELP[cId]?.name || `Cluster ${cId}`;
+      const cName = cluster.name || ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`;
       const cType = cluster.cluster_type || "in";
       const cTypeIcon = cType === "in" ? "mdi-arrow-down-bold" : "mdi-arrow-up-bold";
 
+      const wrapper = document.createElement("div");
+      wrapper.className = "dh-cluster-wrap";
+
       const header = document.createElement("div");
       header.className = "cluster-header";
+      header.setAttribute("role", "button");
+      header.setAttribute("tabindex", "0");
       header.innerHTML =
         `<i class="mdi mdi-chevron-right"></i>` +
-        `<span>${escapeHtml(cName)}</span>` +
-        `<span class="entity-sub" style="margin-left:auto"><i class="mdi ${cTypeIcon}" style="font-size:11px"></i> ${cType} · 0x${cId.toString(16).padStart(4, "0")}</span>`;
+        `<span style="flex:1">${escapeHtml(cName)}</span>` +
+        `<span class="entity-sub"><i class="mdi ${cTypeIcon}" style="font-size:11px"></i> ${cType} · 0x${cId.toString(16).padStart(4, "0")}</span>`;
 
-      const attrs = document.createElement("div");
-      attrs.className = "cluster-attrs";
+      const content = document.createElement("div");
+      content.className = "cluster-content";
+      content.style.display = "none";
 
-      const expandCluster = async () => {
-        const wasOpen = attrs.classList.contains("open");
-        attrs.classList.toggle("open");
-        header.classList.toggle("open");
-        if (!wasOpen && !attrs.dataset.loaded) {
-          attrs.dataset.loaded = "1";
-          attrs.innerHTML = `<div class="entity-sub">${t("dh.loading_attrs")}</div>`;
+      let loaded = false;
+
+      const doExpand = async () => {
+        const isOpen = content.style.display !== "none";
+        if (isOpen) {
+          content.style.display = "none";
+          header.querySelector(".mdi-chevron-right")?.style?.setProperty("transform", "rotate(0deg)");
+          return;
+        }
+        content.style.display = "block";
+        header.querySelector(".mdi-chevron-right")?.style?.setProperty("transform", "rotate(90deg)");
+
+        if (!loaded) {
+          loaded = true;
+          content.innerHTML = '<div class="entity-sub" style="padding:8px 12px"><i class="mdi mdi-loading mdi-spin"></i> Loading attributes & commands...</div>';
           try {
             const reqBody = JSON.stringify({ ieee, endpoint_id: epId, cluster_id: cId, cluster_type: cType });
             const [attrData, cmdData] = await Promise.all([
               api("api/zha-helper/attributes", { method: "POST", body: reqBody }),
-              api("api/zha-helper/commands", { method: "POST", body: reqBody }).catch(() => ({ commands: {} })),
+              api("api/zha-helper/commands", { method: "POST", body: reqBody }).catch(() => ({ commands: [] })),
             ]);
-            renderClusterAttributes(attrs, ieee, epId, cId, cType, attrData.attributes || [], cmdData.commands || {});
+            content.innerHTML = "";
+            _renderClusterContent(content, ieee, epId, cId, cType, attrData.attributes || [], cmdData.commands || []);
           } catch (e) {
-            attrs.innerHTML = `<div class="entity-sub">Error: ${escapeHtml(e.message)}</div>`;
+            content.innerHTML = `<div class="entity-sub" style="padding:8px 12px;color:#ff6b6b"><i class="mdi mdi-alert"></i> Error: ${escapeHtml(e.message)}</div>`;
           }
         }
       };
 
-      header.addEventListener("click", expandCluster);
-      host.appendChild(header);
-      host.appendChild(attrs);
+      header.addEventListener("click", doExpand);
+      header.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doExpand(); } });
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(content);
+      host.appendChild(wrapper);
     }
   }
 }
 
-function renderClusterAttributes(container, ieee, endpointId, clusterId, clusterType, attributes, commands) {
-  container.innerHTML = "";
+// Internal: render cluster content (commands + attributes) inside expanded section
+function _renderClusterContent(container, ieee, endpointId, clusterId, clusterType, attributes, commands) {
   const zclCluster = ZCL_HELP[clusterId];
 
   // ── Commands Section ──
-  // HA WS returns a list: [{type:"server",id:0,name:"off"}, ...] or a dict {server_commands:{...}, ...}
   let serverCmds = {};
   let clientCmds = {};
   if (Array.isArray(commands)) {
     for (const c of commands) {
-      const t = (c.type || "server").toLowerCase();
-      const target = t === "client" ? clientCmds : serverCmds;
+      const ct = (c.type || "server").toLowerCase();
+      const target = ct === "client" ? clientCmds : serverCmds;
       target[c.id ?? c.command_id ?? 0] = c.name || `cmd_${c.id}`;
     }
   } else if (commands && typeof commands === "object") {
@@ -2879,31 +3245,31 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
 
   if (hasCommands) {
     const cmdSection = document.createElement("div");
-    cmdSection.className = "cluster-cmd-section";
-    cmdSection.style.cssText = "padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:6px";
+    cmdSection.className = "dh-cmd-section";
 
     const cmdTitle = document.createElement("div");
-    cmdTitle.style.cssText = "font-size:11px;font-weight:600;color:#60cdff;margin-bottom:6px";
-    cmdTitle.innerHTML = '<i class="mdi mdi-console"></i> Cluster Commands';
+    cmdTitle.className = "dh-section-title";
+    cmdTitle.innerHTML = '<i class="mdi mdi-console"></i> Commands';
     cmdSection.appendChild(cmdTitle);
 
     const renderCmdGroup = (cmds, cmdType) => {
       for (const [cmdId, cmdName] of Object.entries(cmds)) {
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;gap:6px;align-items:center;padding:3px 0;flex-wrap:wrap";
+        row.className = "dh-cmd-row";
         const label = document.createElement("span");
-        label.style.cssText = "font-size:11px;min-width:140px";
-        label.innerHTML = `<code style="color:#60cdff">${escapeHtml(String(cmdName))}</code> <span class="entity-sub">[${cmdId}] ${cmdType}</span>`;
+        label.className = "dh-cmd-label";
+        label.innerHTML = `<code>${escapeHtml(String(cmdName))}</code> <span class="entity-sub">[${cmdId}] ${cmdType}</span>`;
         row.appendChild(label);
         const argsInput = document.createElement("input");
-        argsInput.placeholder = "args (JSON array, optional)";
-        argsInput.style.cssText = "font-size:11px;padding:2px 6px;width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px";
+        argsInput.placeholder = "args JSON []";
+        argsInput.className = "dh-cmd-input";
         row.appendChild(argsInput);
         const execBtn = document.createElement("button");
-        execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute';
-        execBtn.style.fontSize = "11px";
+        execBtn.className = "accent dh-cmd-btn";
+        execBtn.innerHTML = '<i class="mdi mdi-play"></i> Run';
         execBtn.addEventListener("click", async () => {
           execBtn.disabled = true;
+          execBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
           let args = [];
           const raw = argsInput.value.trim();
           if (raw) {
@@ -2919,11 +3285,11 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
               }),
             });
             execBtn.innerHTML = '<i class="mdi mdi-check"></i> OK';
-            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute'; }, 1500);
+            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Run'; }, 2000);
           } catch (e) {
-            execBtn.innerHTML = '<i class="mdi mdi-alert"></i> Error';
+            execBtn.innerHTML = '<i class="mdi mdi-alert"></i> Err';
             execBtn.title = e.message;
-            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Execute'; execBtn.title = ""; }, 2000);
+            setTimeout(() => { execBtn.innerHTML = '<i class="mdi mdi-play"></i> Run'; execBtn.title = ""; }, 3000);
           }
           execBtn.disabled = false;
         });
@@ -2938,28 +3304,37 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
   }
 
   // ── Attributes Section ──
-  const toolbar = document.createElement("div");
-  toolbar.style.cssText = "display:flex;gap:6px;align-items:center;padding:2px 0 6px;border-bottom:1px solid var(--border);margin-bottom:4px";
+  const attrSection = document.createElement("div");
+  attrSection.className = "dh-attr-section";
+
+  const attrTitle = document.createElement("div");
+  attrTitle.className = "dh-section-title";
+  attrTitle.innerHTML = `<i class="mdi mdi-format-list-bulleted"></i> Attributes (${attributes.length})`;
+
   const readAllBtn = document.createElement("button");
   readAllBtn.innerHTML = '<i class="mdi mdi-download"></i> Read All';
-  readAllBtn.style.fontSize = "11px";
+  readAllBtn.className = "dh-read-all-btn";
   readAllBtn.addEventListener("click", async () => {
     readAllBtn.disabled = true;
-    readAllBtn.textContent = "Reading...";
-    const inputs = container.querySelectorAll(".attr-row");
-    for (const row of inputs) {
-      const rb = row.querySelector("button");
-      if (rb && rb.textContent === "Read") rb.click();
+    readAllBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Reading...';
+    const rows = attrSection.querySelectorAll(".dh-attr-row");
+    for (const row of rows) {
+      const rb = row.querySelector(".dh-attr-read");
+      if (rb) rb.click();
+      await new Promise(r => setTimeout(r, 150)); // stagger reads
     }
     readAllBtn.disabled = false;
     readAllBtn.innerHTML = '<i class="mdi mdi-download"></i> Read All';
   });
-  toolbar.appendChild(readAllBtn);
-  container.appendChild(toolbar);
+  attrTitle.appendChild(readAllBtn);
+  attrSection.appendChild(attrTitle);
 
   if (!attributes.length) {
-    container.appendChild(Object.assign(document.createElement("div"), { className: "entity-sub", textContent: "No attributes" }));
-    return;
+    const noA = document.createElement("div");
+    noA.className = "entity-sub";
+    noA.style.padding = "4px 0";
+    noA.textContent = "No attributes reported for this cluster";
+    attrSection.appendChild(noA);
   }
 
   for (const attr of attributes) {
@@ -2968,21 +3343,24 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
     const helpText = zclCluster?.attrs?.[attrId]?.h || "";
 
     const row = document.createElement("div");
-    row.className = "attr-row";
+    row.className = "dh-attr-row";
 
     const nameEl = document.createElement("div");
-    nameEl.className = "attr-name";
+    nameEl.className = "dh-attr-name";
     nameEl.innerHTML = `<code>${escapeHtml(attrName)}</code> <span class="entity-sub">[${attrId}]</span>`;
+    if (helpText) nameEl.title = helpText;
 
     const valInput = document.createElement("input");
-    valInput.className = "attr-val";
-    valInput.placeholder = "\u2014";
-    valInput.title = "Attribute value";
+    valInput.className = "dh-attr-val";
+    valInput.placeholder = "—";
 
     const readBtn = document.createElement("button");
-    readBtn.textContent = "Read";
+    readBtn.className = "dh-attr-read";
+    readBtn.innerHTML = '<i class="mdi mdi-eye"></i>';
+    readBtn.title = "Read attribute";
     readBtn.addEventListener("click", async () => {
       readBtn.disabled = true;
+      readBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
       try {
         const res = await api("api/zha-helper/read-attribute", {
           method: "POST",
@@ -2990,46 +3368,50 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
         });
         const keys = Object.keys(res);
         valInput.value = keys.length ? String(res[keys[0]]) : JSON.stringify(res);
+        valInput.style.color = "#6ccb5f";
+        setTimeout(() => { valInput.style.color = ""; }, 2000);
       } catch (e) {
         valInput.value = "ERR";
         valInput.title = e.message;
+        valInput.style.color = "#ff6b6b";
       }
       readBtn.disabled = false;
+      readBtn.innerHTML = '<i class="mdi mdi-eye"></i>';
     });
 
     const writeBtn = document.createElement("button");
-    writeBtn.textContent = "Write";
+    writeBtn.className = "dh-attr-write";
+    writeBtn.innerHTML = '<i class="mdi mdi-pencil"></i>';
+    writeBtn.title = "Write attribute";
     writeBtn.addEventListener("click", async () => {
       const raw = valInput.value.trim();
-      if (raw === "") return;
+      if (raw === "" || raw === "ERR") return;
       let value = isNaN(Number(raw)) ? raw : Number(raw);
       writeBtn.disabled = true;
+      writeBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
       try {
         await api("api/zha-helper/write-attribute", {
           method: "POST",
           body: JSON.stringify({ ieee, endpoint_id: endpointId, cluster_id: clusterId, cluster_type: clusterType, attribute: attrId, value }),
         });
-        writeBtn.textContent = "\u2713";
-        setTimeout(() => { writeBtn.textContent = "Write"; }, 1500);
+        writeBtn.innerHTML = '<i class="mdi mdi-check"></i>';
+        setTimeout(() => { writeBtn.innerHTML = '<i class="mdi mdi-pencil"></i>'; }, 2000);
       } catch (e) {
-        alert(`Write error: ${e.message}`);
+        writeBtn.innerHTML = '<i class="mdi mdi-alert"></i>';
+        writeBtn.title = `Write error: ${e.message}`;
+        setTimeout(() => { writeBtn.innerHTML = '<i class="mdi mdi-pencil"></i>'; writeBtn.title = "Write attribute"; }, 3000);
       }
       writeBtn.disabled = false;
     });
 
     row.appendChild(nameEl);
-    if (helpText) {
-      const helpEl = document.createElement("span");
-      helpEl.className = "attr-help";
-      helpEl.textContent = helpText;
-      helpEl.title = helpText;
-      row.appendChild(helpEl);
-    }
     row.appendChild(valInput);
     row.appendChild(readBtn);
     row.appendChild(writeBtn);
-    container.appendChild(row);
+    attrSection.appendChild(row);
   }
+
+  container.appendChild(attrSection);
 }
 
 async function devHelperIdentify() {

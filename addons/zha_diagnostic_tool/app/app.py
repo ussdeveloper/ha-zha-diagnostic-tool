@@ -1454,6 +1454,42 @@ async def delete_keepalive(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+# ---- Entity history (for sensor charts) ----
+
+HISTORY_PERIODS = {"24h": 24, "7d": 168, "30d": 720, "5mo": 3600}
+
+async def get_entity_history(request: web.Request) -> web.Response:
+    entity_id = request.match_info.get("entity_id", "")
+    if not entity_id or not runtime.session:
+        return web.json_response({"error": "Missing entity_id"}, status=400)
+    period = request.query.get("period", "24h")
+    hours = HISTORY_PERIODS.get(period, 24)
+    start = (datetime.now(tz=UTC) - timedelta(hours=hours)).isoformat()
+    try:
+        async with runtime.session.get(
+            f"{SUPERVISOR_API}/history/period/{start}",
+            params={"filter_entity_id": entity_id, "minimal_response": "", "significant_changes_only": ""},
+            timeout=ClientTimeout(total=30),
+        ) as resp:
+            if resp.status >= 300:
+                return web.json_response({"error": f"HA returned {resp.status}"}, status=502)
+            data = await resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return web.json_response({"error": str(exc)}, status=502)
+    points: list[dict[str, Any]] = []
+    for entity_history in data:
+        if not entity_history:
+            continue
+        for pt in entity_history:
+            state_str = pt.get("state", "")
+            try:
+                val = float(state_str)
+                points.append({"ts": pt.get("last_changed"), "v": val})
+            except (TypeError, ValueError):
+                pass
+    return web.json_response({"entity_id": entity_id, "period": period, "points": points})
+
+
 async def on_startup(_: web.Application) -> None:
     await runtime.start()
 
@@ -1513,6 +1549,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/keepalive", get_keepalive_configs)
     app.router.add_post("/api/keepalive", create_keepalive)
     app.router.add_delete("/api/keepalive/{ka_id}", delete_keepalive)
+
+    app.router.add_get("/api/entity-history/{entity_id}", get_entity_history)
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

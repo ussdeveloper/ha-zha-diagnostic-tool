@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.13] - 2026-02-28
+
+### Fixed
+- Network map: much wider spacing (idealDist 90-160, repulsion 5000, center gravity 0.0005).
+- Device Helper: complete rewrite — cluster expand/collapse, attribute read/write, command execution all fully working.
+
+### Added
+- Network map: hover tooltip (name, manufacturer, IEEE, NWK, LQI) + highlight ring.
+- Network map: minimap click-to-focus viewport panning.
+- Sensor history chart: icon in device detail, canvas chart with 24h/7d/30d/5mo slider.
+- Backend: `GET /api/entity-history/{entity_id}?period=` endpoint.
+
 ## [0.10.12] - 2026-02-28
 
 ### Fixed

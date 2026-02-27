@@ -1079,6 +1079,76 @@ button.danger:hover { background: #a62115; }
   z-index: 2;
 }
 
+/* ── Device Helper: rewritten cluster UI ── */
+.dh-cluster-wrap { border-bottom: 1px solid var(--divider); }
+.cluster-header .mdi-chevron-right { transition: transform 0.15s; }
+.cluster-content { padding: 4px 12px 8px 28px; }
+
+.dh-section-title {
+  font-size: 11px; font-weight: 600; color: #60cdff;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+}
+.dh-read-all-btn {
+  margin-left: auto; font-size: 10px; padding: 2px 8px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; cursor: pointer;
+}
+.dh-read-all-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Commands */
+.dh-cmd-section {
+  padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 6px;
+}
+.dh-cmd-row {
+  display: flex; gap: 6px; align-items: center; padding: 3px 0; flex-wrap: wrap;
+}
+.dh-cmd-label {
+  font-size: 11px; min-width: 140px;
+}
+.dh-cmd-label code { color: #60cdff; }
+.dh-cmd-input {
+  font-size: 11px; padding: 2px 6px; width: 160px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px;
+}
+.dh-cmd-btn { font-size: 11px; padding: 2px 8px; }
+
+/* Attributes */
+.dh-attr-section { padding: 4px 0; }
+.dh-attr-row {
+  display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px;
+}
+.dh-attr-name { flex: 1; min-width: 0; }
+.dh-attr-name code { font-size: 11px; color: var(--text-sec); }
+.dh-attr-val {
+  width: 110px; font-size: 12px; padding: 4px 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px;
+}
+.dh-attr-read, .dh-attr-write {
+  padding: 2px 6px; font-size: 14px; border: none; cursor: pointer;
+  background: transparent; color: var(--text-sec); border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+}
+.dh-attr-read:hover { color: #6ccb5f; background: rgba(108,203,95,0.1); }
+.dh-attr-write:hover { color: #60cdff; background: rgba(96,205,255,0.1); }
+.dh-attr-read:disabled, .dh-attr-write:disabled { opacity: 0.5; cursor: default; }
+
+/* Sensor History Chart */
+.sensor-history-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-tert); font-size: 16px; padding: 2px 4px;
+  border-radius: 4px; transition: color 0.15s, background 0.15s;
+}
+.sensor-history-btn:hover { color: var(--accent); background: rgba(96,205,255,0.1); }
+.history-chart-wrap { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.history-range-slider {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-sec);
+}
+.history-range-slider input[type=range] {
+  flex: 1; accent-color: var(--accent);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .sensor-form { grid-template-columns: 1fr 1fr 1fr; }

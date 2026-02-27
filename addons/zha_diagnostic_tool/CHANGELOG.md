@@ -1,5 +1,23 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.17] - 2026-02-28
+
+### Fixed
+- **Network map**: much wider spacing — idealDist 90-160 (was 60-120), repulsion 5000 (was 3000), center gravity halved. Router/end-device rings spread further apart.
+- **Device Helper**: complete rewrite of cluster expand/collapse — uses direct DOM manipulation instead of CSS class toggle, proper loading states, visible error messages.
+- **Device Helper**: robust attribute read/write buttons with loading spinners, error feedback, and "Read All" bulk action.
+- **Device Helper**: cluster commands section with args input, execute button, and status feedback.
+
+### Added
+- **Network map**: hover tooltip showing device name, manufacturer/model, IEEE, NWK, LQI, device type with glowing highlight ring.
+- **Network map**: minimap click-to-focus — clicking on the minimap area pans the viewport to that world position.
+- **Sensor history chart**: chart icon button next to each sensor entity in device detail window.
+- **Sensor history chart**: canvas line chart with gradient fill, time/value axes, zoomable via slider (24h / 7d / 30d / 5mo).
+- **Backend**: `GET /api/entity-history/{entity_id}?period=` endpoint using HA history API.
+
+### Changed
+- Cache-bust bumped to `?v=0917`.
+
 ## [0.9.16] - 2026-02-28
 
 ### Fixed
