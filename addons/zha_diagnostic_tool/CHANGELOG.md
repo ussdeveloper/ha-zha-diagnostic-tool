@@ -1,5 +1,21 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.16] - 2026-02-28
+
+### Fixed
+- **Notify select**: now fetches mobile_app notification targets from HA `/api/services` (notify domain) instead of relying on state entities — correctly shows `notify.mobile_app_*` devices.
+- **Network map**: calls `zha/topology/update` WS command before reading devices, so neighbor tables are populated. Force layout center gravity reduced (0.003→0.001), repulsion increased (2400→3000), nodes properly spread. Canvas-scaled radii adapt to window size.
+- **Device Helper — entity matching**: uses HA device+entity registry (`config/device_registry/list` + `config/entity_registry/list`) for reliable IEEE→entity_id mapping. Falls back to `device_ieee` field and name slug matching.
+- **Device Helper — cluster layout**: endpoint headers with sticky positioning and in/out cluster counts. Cluster type shown with directional arrow icon (↓in/↑out).
+
+### Added
+- **Backend**: `_ws_command` accepts configurable `timeout` parameter (default 30s, topology scan uses 90s).
+- **Backend**: `device_entity_map` in dashboard payload — maps ZHA IEEE addresses to HA entity_ids via device registry.
+- **Frontend**: topology info bar on network map showing device counts and warning when no topology data available.
+
+### Changed
+- Cache-bust bumped to `?v=0916`.
+
 ## [0.9.15] - 2026-02-28
 
 ### Fixed

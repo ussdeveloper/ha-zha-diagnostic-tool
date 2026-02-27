@@ -48,6 +48,7 @@ const state = {
   zhaDevicesFull: [],
   zhaHealthIssues: [],
   unavailableDevices: [],
+  deviceEntityMap: {},
   iconPositions: JSON.parse(localStorage.getItem("zha_icon_positions") || "{}"),
   batterySelected: new Set(),
   entityShortcuts: JSON.parse(localStorage.getItem("zha_entity_shortcuts") || "[]"),
@@ -1364,51 +1365,63 @@ function renderNetworkMap() {
     nm.nodesKey = _devIds;
     const count = devices.length;
 
+    // Scale radii to available canvas area (world-space pixels)
+    const canvasR = Math.min(w, h) * 0.35; // use 35% of smaller canvas dimension
+    const baseR = Math.max(canvasR * 0.3, 80 * dpr);
+
     // Separate routers and end-devices for layered ring placement
     const routers = devices.filter(d => d.device_type === "Router" || (d.power_source_str || "").includes("Main"));
     const endDevices = devices.filter(d => !routers.includes(d));
 
-    // Simple seeded random for reproducible jitter (based on device count)
+    // Build neighbor lookup: ieee → set of neighbor ieee addresses
+    const nbMap = new Map();
+    for (const d of devices) {
+      const nbs = (d.neighbors || []).map(nb => nb.ieee || nb.ieee_address).filter(Boolean);
+      if (nbs.length) nbMap.set(d.ieee, nbs);
+    }
+    const hasTopology = nbMap.size > 0;
+
+    // Simple seeded random for reproducible jitter
     let _seed = count * 7 + 31;
     const _srand = () => { _seed = (_seed * 16807 + 0) % 2147483647; return (_seed & 0xffff) / 0xffff; };
 
     const nodes = [];
-    // Place routers in inner ring (closer to coordinator)
-    const rCount = routers.length || 1;
+    // Routers in inner ring
+    const rCount = Math.max(routers.length, 1);
     const rAngleStep = (2 * Math.PI) / rCount;
-    const rRadius = Math.max(160, Math.min(320, 100 + rCount * 35)) * dpr;
+    const rRadius = baseR + rCount * 8 * dpr;
     for (let i = 0; i < routers.length; i++) {
-      const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.3;
-      const r = rRadius + (_srand() - 0.5) * 60 * dpr;
+      const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.25;
+      const r = rRadius + (_srand() - 0.5) * 30 * dpr;
       nodes.push({ dev: routers[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, vx: 0, vy: 0 });
     }
-    // Place end-devices in outer ring
-    const eCount = endDevices.length || 1;
+
+    // End-devices in outer ring — near parent router if topology available
+    const eCount = Math.max(endDevices.length, 1);
     const eAngleStep = (2 * Math.PI) / eCount;
-    const eRadius = rRadius + Math.max(120, Math.min(280, 60 + eCount * 20)) * dpr;
+    const eRadius = rRadius + baseR * 0.7;
     for (let i = 0; i < endDevices.length; i++) {
       const dev = endDevices[i];
-      // If this end-device has a neighbor that is a router, place it near that router
-      const neighbors = dev.neighbors || [];
-      const parentRouter = neighbors.length
-        ? nodes.find(n => routers.includes(n.dev) && neighbors.some(nb => (nb.ieee || nb.ieee_address) === n.dev.ieee))
+      const devNbs = nbMap.get(dev.ieee) || [];
+      const parentNode = devNbs.length
+        ? nodes.find(n => routers.includes(n.dev) && devNbs.includes(n.dev.ieee))
         : null;
       let x, y;
-      if (parentRouter) {
-        // Place near the parent router with some scatter
-        const angle = Math.atan2(parentRouter.y, parentRouter.x) + (_srand() - 0.5) * 1.2;
-        const dist = Math.sqrt(parentRouter.x ** 2 + parentRouter.y ** 2) + (60 + _srand() * 80) * dpr;
-        x = Math.cos(angle) * dist;
-        y = Math.sin(angle) * dist;
+      if (parentNode && hasTopology) {
+        const pAngle = Math.atan2(parentNode.y, parentNode.x) + (_srand() - 0.5) * 0.8;
+        const pDist = Math.sqrt(parentNode.x ** 2 + parentNode.y ** 2) + (40 + _srand() * 50) * dpr;
+        x = Math.cos(pAngle) * pDist;
+        y = Math.sin(pAngle) * pDist;
       } else {
-        const angle = i * eAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.4;
-        const r = eRadius + (_srand() - 0.5) * 80 * dpr;
+        const angle = i * eAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.3;
+        const r = eRadius + (_srand() - 0.5) * 40 * dpr;
         x = Math.cos(angle) * r;
         y = Math.sin(angle) * r;
       }
       nodes.push({ dev, x, y, vx: 0, vy: 0 });
     }
     nm.nodes = nodes;
+    nm._hasTopology = hasTopology;
     // Start animated force-directed settling
     nm.animFrame = 0;
     nm.settled = false;
@@ -1588,6 +1601,18 @@ function renderNetworkMap() {
 
   ctx.restore();
 
+  // Info bar (top-left, below scan button)
+  ctx.fillStyle = "rgba(255,255,255,0.45)";
+  ctx.font = `${9 * dpr}px Segoe UI`;
+  ctx.textAlign = "left";
+  const rCount = nm.nodes.filter(n => n.dev.device_type === "Router" || (n.dev.power_source_str || "").includes("Main")).length;
+  const eCount = nm.nodes.length - rCount;
+  ctx.fillText(`${nm.nodes.length} devices (${rCount} routers, ${eCount} end-devices)`, 12 * dpr, 42 * dpr);
+  if (!nm._hasTopology) {
+    ctx.fillStyle = "#fce100aa";
+    ctx.fillText("⚠ No topology data — click Scan Network to read neighbor tables", 12 * dpr, 56 * dpr);
+  }
+
   // Legend (top-right corner)
   const lx = w - 110 * dpr, ly = 16 * dpr;
   ctx.font = `${10 * dpr}px Segoe UI`;
@@ -1754,53 +1779,55 @@ function _devLqi(dev) {
 }
 
 function _forceStep(nodes, dpr, damping) {
-  const repel = 2400 * dpr;
-  const attract = 0.02;
-  const center = 0.003;
-  // Minimum separation distance to prevent overlap — scales with node count
-  const minSep = Math.max(45, 70 - nodes.length * 0.5) * dpr;
+  const n = nodes.length;
+  if (!n) return;
+  // Minimum desired spacing between nodes (adapts to network size)
+  const idealDist = Math.max(60, 120 - n * 0.8) * dpr;
+  const repel = 3000 * dpr;
+  const attractK = 0.015;
+  const centerK = 0.001; // very weak center gravity — just prevents drift
   if (damping == null) damping = 0.5;
 
   for (const a of nodes) {
     a.vx *= damping; a.vy *= damping;
-    // Center gravity — pulls toward origin
-    a.vx -= a.x * center;
-    a.vy -= a.y * center;
-    // Repulsion between all nodes
+    // Weak center gravity
+    a.vx -= a.x * centerK;
+    a.vy -= a.y * centerK;
+    // Repulsion between all pairs
     for (const b of nodes) {
       if (a === b) continue;
       const dx = a.x - b.x, dy = a.y - b.y;
-      const d2 = dx*dx + dy*dy + 1;
+      const d2 = dx * dx + dy * dy + 1;
       const dist = Math.sqrt(d2);
-      const f = repel / d2;
-      a.vx += (dx / dist) * f;
-      a.vy += (dy / dist) * f;
-      // Hard separation — push apart if too close
-      if (dist < minSep) {
-        const push = (minSep - dist) * 0.5;
-        const nx = dx / dist, ny = dy / dist;
+      const nx = dx / dist, ny = dy / dist;
+      // Coulomb-style repulsion
+      a.vx += nx * repel / d2;
+      a.vy += ny * repel / d2;
+      // Hard push-apart if overlapping
+      if (dist < idealDist) {
+        const push = (idealDist - dist) * 0.6;
         a.vx += nx * push;
         a.vy += ny * push;
       }
     }
-    // Attraction to neighbors
+    // Attraction to neighbors (only if topology data exists)
     const neighbors = a.dev.neighbors || [];
     for (const nb of neighbors) {
       const nbIeee = nb.ieee || nb.ieee_address;
       if (!nbIeee) continue;
-      const target = nodes.find(n => n.dev.ieee === nbIeee && n !== a);
+      const target = nodes.find(t => t.dev.ieee === nbIeee && t !== a);
       if (!target) continue;
       const dx = target.x - a.x, dy = target.y - a.y;
-      const dist = Math.sqrt(dx*dx + dy*dy + 1);
-      // Only attract if farther than minSep — prevents collapse
-      if (dist > minSep * 1.5) {
-        a.vx += dx * attract;
-        a.vy += dy * attract;
+      const dist = Math.sqrt(dx * dx + dy * dy + 1);
+      // Spring — attract when far, nothing when near ideal distance
+      if (dist > idealDist * 1.2) {
+        const strength = attractK * (dist - idealDist);
+        a.vx += (dx / dist) * strength;
+        a.vy += (dy / dist) * strength;
       }
     }
   }
-  // Clamp velocity to prevent explosion
-  const maxV = 18 * dpr;
+  const maxV = 20 * dpr;
   for (const a of nodes) {
     a.vx = Math.max(-maxV, Math.min(maxV, a.vx));
     a.vy = Math.max(-maxV, Math.min(maxV, a.vy));
@@ -1901,14 +1928,14 @@ function initNetworkMap() {
     }
   });
 
-  // Scan Network button — forces fresh ZHA topology fetch then redraws
+  // Scan Network button — triggers ZHA topology scan (reads neighbor tables) then redraws
   const scanBtn = $("netmap-scan-btn");
   if (scanBtn) {
     scanBtn.addEventListener("click", async () => {
       scanBtn.disabled = true;
-      scanBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Scanning\u2026';
+      scanBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Scanning topology\u2026';
       try {
-        await fetch("api/network-scan", { method: "POST" });
+        await api("api/network-scan", { method: "POST" });
         nm.nodes = null; nm.nodesKey = null;
         renderNetworkMap();
       } catch (_) { /* ignore */ }
@@ -2617,19 +2644,31 @@ async function selectDevHelperDevice(dev) {
       ? '<span style="color:#ff6b6b">● Unavailable</span>'
       : '<span style="color:#6ccb5f">● Available</span>';
 
-    // Match related HA entities:
-    // 1. Primary: by device_ieee field (backend now includes it)
-    // 2. Fallback: by name slug
+    // Match related HA entities using device→entity registry map (most reliable),
+    // then device_ieee field, then name slug fallback
     const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
-    let related = allItems.filter(e => e.device_ieee && e.device_ieee === dev.ieee);
+    const registryEids = state.deviceEntityMap[dev.ieee] || [];
+    let related = [];
+    if (registryEids.length) {
+      const eidSet = new Set(registryEids);
+      related = allItems.filter(e => eidSet.has(e.entity_id));
+      // Include any registry entity_ids not in our state lists (show as entity_id only)
+      for (const eid of registryEids) {
+        if (!related.some(e => e.entity_id === eid)) {
+          related.push({ entity_id: eid, state: "?", icon: "mdi:zigbee", friendly_name: eid });
+        }
+      }
+    }
+    if (!related.length) {
+      related = allItems.filter(e => e.device_ieee && e.device_ieee === dev.ieee);
+    }
     if (!related.length) {
       const devName = (dev.user_given_name || dev.name || "").toLowerCase();
       const slug = devName.replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      if (slug.length >= 4) {
+      if (slug.length >= 3) {
         related = allItems.filter(e => {
           const n = (e.entity_id.split(".")[1] || "").toLowerCase();
-          return n === slug || n.startsWith(slug + "_") ||
-            (slug.length >= 6 && n.startsWith(slug.slice(0, slug.length - 2)));
+          return n === slug || n.startsWith(slug + "_");
         });
       }
     }
@@ -2748,6 +2787,9 @@ function renderDevHelperClusters(ieee, clusterData) {
     return s.startsWith("0x") ? parseInt(s, 16) : parseInt(s, 10);
   };
 
+  // Auto-expand first endpoint if ≤2 endpoints
+  const autoExpandFirst = endpoints.length <= 2;
+
   for (let epIdx = 0; epIdx < endpoints.length; epIdx++) {
     const ep = endpoints[epIdx];
     const epId = ep.endpoint_id ?? ep.id ?? 1;
@@ -2762,12 +2804,13 @@ function renderDevHelperClusters(ieee, clusterData) {
       const profileName = _zbProfileName(_pid(ep.profile_id));
       const devTypeName = _zbDeviceTypeName(_pid(ep.profile_id), _pid(ep.device_type));
       const clusterCount = allClusters.length;
+      const inCount = inClusters.length;
+      const outCount = outClusters.length;
       const badges = [profileName, devTypeName].filter(Boolean)
         .map(t => `<span class="ep-badge">${escapeHtml(t)}</span>`).join("");
       const epHeader = document.createElement("div");
-      epHeader.className = "row";
-      epHeader.style.cssText = "background:var(--surface);cursor:default";
-      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId} ${badges} <span class="entity-sub" style="margin-left:6px">${clusterCount} cluster${clusterCount !== 1 ? "s" : ""}</span></div>`;
+      epHeader.className = "ep-header";
+      epHeader.innerHTML = `<i class="mdi mdi-chip" style="color:var(--accent)"></i> <strong>Endpoint ${epId}</strong> ${badges} <span class="entity-sub" style="margin-left:6px">${inCount} in · ${outCount} out</span>`;
       host.appendChild(epHeader);
     }
 
@@ -2775,18 +2818,19 @@ function renderDevHelperClusters(ieee, clusterData) {
       const cId = _pid(cluster.id ?? cluster.cluster_id ?? 0) || 0;
       const cName = cluster.name || ZCL_HELP[cId]?.name || `Cluster ${cId}`;
       const cType = cluster.cluster_type || "in";
+      const cTypeIcon = cType === "in" ? "mdi-arrow-down-bold" : "mdi-arrow-up-bold";
 
       const header = document.createElement("div");
       header.className = "cluster-header";
       header.innerHTML =
         `<i class="mdi mdi-chevron-right"></i>` +
         `<span>${escapeHtml(cName)}</span>` +
-        `<span class="entity-sub" style="margin-left:auto">0x${cId.toString(16).padStart(4, "0")} · ${cType}</span>`;
+        `<span class="entity-sub" style="margin-left:auto"><i class="mdi ${cTypeIcon}" style="font-size:11px"></i> ${cType} · 0x${cId.toString(16).padStart(4, "0")}</span>`;
 
       const attrs = document.createElement("div");
       attrs.className = "cluster-attrs";
 
-      header.addEventListener("click", async () => {
+      const expandCluster = async () => {
         const wasOpen = attrs.classList.contains("open");
         attrs.classList.toggle("open");
         header.classList.toggle("open");
@@ -2804,8 +2848,9 @@ function renderDevHelperClusters(ieee, clusterData) {
             attrs.innerHTML = `<div class="entity-sub">Error: ${escapeHtml(e.message)}</div>`;
           }
         }
-      });
+      };
 
+      header.addEventListener("click", expandCluster);
       host.appendChild(header);
       host.appendChild(attrs);
     }
@@ -3622,6 +3667,7 @@ async function load() {
     state.zhaDevicesFull = d.zha_devices_full || [];
     state.zhaHealthIssues = d.zha_health_issues || [];
     state.unavailableDevices = d.unavailable_devices || [];
+    state.deviceEntityMap = d.device_entity_map || {};
     // Merge new errors; deduplicate by ts+type+ieee
     const prevKeys = new Set(state.zigbeeErrorLog.map(e => `${e.ts}|${e.type}|${e.ieee}`));
     for (const e of (d.zigbee_error_log || [])) {

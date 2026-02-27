@@ -79,6 +79,8 @@ class DiagnosticRuntime:
 
         # Full zigbee device list from ZHA WS (with neighbours/LQI for map)
         self.zha_devices_full: list[dict[str, Any]] = []
+        # Mapping: ZHA device IEEE → list of HA entity_ids (from device+entity registry)
+        self.device_entity_map: dict[str, list[str]] = {}
         # Zigbee error log: timeout, not_delivered, link failures
         self.zigbee_error_log: deque[dict[str, Any]] = deque(maxlen=500)
         # Full zigbee activity log: ALL zha_events + zigbee state changes + system log
@@ -261,6 +263,61 @@ class DiagnosticRuntime:
                     }
                 )
 
+        # Also fetch HA services to find notify targets (mobile_app etc.)
+        # notify.mobile_app_* are services, NOT state entities in HA 2024.x
+        try:
+            async with self.session.get(
+                f"{SUPERVISOR_API}/services",
+                timeout=ClientTimeout(total=10),
+            ) as svc_resp:
+                if svc_resp.status < 300:
+                    svc_payload = await svc_resp.json()
+                    seen = {e["entity_id"] for e in notify_entities}
+                    for domain_info in svc_payload:
+                        if domain_info.get("domain") == "notify":
+                            for svc_name, svc_meta in domain_info.get("services", {}).items():
+                                svc_id = f"notify.{svc_name}"
+                                if svc_id not in seen:
+                                    friendly = svc_meta.get("name") or svc_name.replace("_", " ").title()
+                                    notify_entities.append({
+                                        "entity_id": svc_id,
+                                        "friendly_name": friendly,
+                                    })
+        except Exception:  # noqa: BLE001
+            pass  # service fetch is best-effort
+
+        # Fetch device+entity registries to build ZHA IEEE → entity_id mapping
+        try:
+            dev_reg_resp = await self._ws_command({"type": "config/device_registry/list"})
+            ent_reg_resp = await self._ws_command({"type": "config/entity_registry/list"})
+            if dev_reg_resp.get("success") and ent_reg_resp.get("success"):
+                # Build device_id → IEEE mapping from device registry
+                dev_id_to_ieee: dict[str, str] = {}
+                for dev in dev_reg_resp.get("result", []):
+                    for ident in dev.get("identifiers", []):
+                        if isinstance(ident, (list, tuple)) and len(ident) >= 2 and ident[0] == "zha":
+                            dev_id_to_ieee[dev["id"]] = str(ident[1])
+                # Build IEEE → entity_ids mapping from entity registry
+                ieee_entities: dict[str, list[str]] = {}
+                for ent in ent_reg_resp.get("result", []):
+                    eid = ent.get("entity_id", "")
+                    did = ent.get("device_id", "")
+                    ieee = dev_id_to_ieee.get(did)
+                    if ieee and eid:
+                        ieee_entities.setdefault(ieee, []).append(eid)
+                self.device_entity_map = ieee_entities
+                # Backfill device_ieee on entities using registry data
+                all_ents = zigbee_entities + switch_entities + sensor_entities
+                eid_to_ieee = {}
+                for ieee_addr, eids in ieee_entities.items():
+                    for eid in eids:
+                        eid_to_ieee[eid] = ieee_addr
+                for ent in all_ents:
+                    if not ent.get("device_ieee"):
+                        ent["device_ieee"] = eid_to_ieee.get(ent["entity_id"], "")
+        except Exception:  # noqa: BLE001
+            pass  # registry fetch is best-effort
+
         self.states = states
         self.zigbee_entities = sorted(zigbee_entities, key=lambda e: e["entity_id"])
         self.switch_entities = sorted(switch_entities, key=lambda e: e["entity_id"])
@@ -308,7 +365,7 @@ class DiagnosticRuntime:
                 elif msg.type in {WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR}:
                     raise RuntimeError("Websocket closed")
 
-    async def _ws_command(self, command_data: dict[str, Any]) -> dict[str, Any]:
+    async def _ws_command(self, command_data: dict[str, Any], timeout: float = 30) -> dict[str, Any]:
         """Send a single WS command and return the response."""
         if not self.session:
             raise RuntimeError("No session available")
@@ -322,7 +379,7 @@ class DiagnosticRuntime:
                 raise RuntimeError(f"WS auth failed: {auth_ok}")
             await ws.send_json({"id": 1, **command_data})
             while True:
-                msg = await ws.receive(timeout=30)
+                msg = await ws.receive(timeout=timeout)
                 if msg.type == WSMsgType.TEXT:
                     resp = json.loads(msg.data)
                     if resp.get("id") == 1:
@@ -866,6 +923,7 @@ class DiagnosticRuntime:
             "zigbee_full_log": list(self.zigbee_full_log)[-500:],
             "zha_health_issues": self.zha_health_issues,
             "unavailable_devices": self.unavailable_devices,
+            "device_entity_map": self.device_entity_map,
         }
 
     def _command_success_rate(self) -> float | None:
@@ -1128,7 +1186,12 @@ async def refresh_now(_: web.Request) -> web.Response:
 
 
 async def network_scan(_: web.Request) -> web.Response:
-    """Force an immediate ZHA device+topology fetch, bypassing the 60-second cooldown."""
+    """Trigger a ZHA topology scan (reads neighbor tables), then re-fetch devices."""
+    try:
+        # Ask ZHA to scan all devices' neighbor tables — can take 30-60 seconds
+        await runtime._ws_command({"type": "zha/topology/update"}, timeout=90)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("ZHA topology/update: %s (continuing with device fetch)", exc)
     runtime._last_zha_map_ts = 0
     await runtime._maybe_fetch_zha_map()
     return web.json_response({"ok": True, "devices": len(runtime.zha_devices_full)})

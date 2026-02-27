@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.12] - 2026-02-28
+
+### Fixed
+- Notify select: fetches mobile_app targets from HA services API (not state entities).
+- Network map: topology scan via `zha/topology/update`, weaker center gravity, stronger repulsion, canvas-scaled layout.
+- Device Helper: entity matching via HA device+entity registry (IEEE→entity_id mapping).
+- Device Helper: improved cluster layout with sticky endpoint headers, directional cluster type icons.
+
+### Added
+- Backend configurable WS timeout (`_ws_command`), device_entity_map in dashboard payload.
+- Network map topology info bar with device counts.
+
 ## [0.10.11] - 2026-02-28
 
 ### Fixed
