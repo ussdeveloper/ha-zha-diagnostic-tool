@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.11] - 2026-02-28
+
+### Fixed
+- Device Helper: fixed empty clusters — handles both `input_clusters`/`output_clusters` and `in_clusters`/`out_clusters` field names, plus hex string cluster/profile IDs.
+- Device Helper: Identify now finds correct endpoint with cluster 0x0003 (was hardcoded to EP 1).
+- Device Helper: endpoint headers show profile name, device type, and cluster count.
+- Unavailable popup: devices are now clickable — opens device detail window.
+- Entity detail: sensor_entities include device_ieee — all device entities now visible.
+- Network map: layered ring layout (routers inner, end-devices outer), force layout with min separation.
+- Notify entities: includes tts.* for HA 2024+ mobile_app services.
+
 ## [0.10.10] - 2026-02-28
 
 ### Fixed

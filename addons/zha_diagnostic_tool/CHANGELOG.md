@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.15] - 2026-02-28
+
+### Fixed
+- **Device Helper — cluster parsing**: fixed empty clusters — ZHA WS returns `input_clusters`/`output_clusters`, code read `in_clusters`/`out_clusters`. Now handles both field names and hex string IDs.
+- **Device Helper — Identify**: no longer hardcoded to endpoint 1. Dynamically finds the first endpoint with Identify cluster (0x0003).
+- **Device Helper — profile/device type badges**: now correctly parse hex string profile_id/device_type from ZHA WS data. Endpoint headers show HA/ZLL profile, device type name, and cluster count.
+- **Unavailable devices popup**: clicking a device now opens the device detail window (was non-interactive static HTML).
+- **Entity detail — all entities**: sensor_entities now include `device_ieee` field, so opening device detail shows ALL entities (switches, sensors, zigbee) for the physical device.
+- **Network map layout**: routers placed in inner ring, end-devices in outer ring with parent-proximity placement. Seeded jitter prevents overlap. Force layout has minimum separation distance and gated attraction.
+- **Notify entities**: filter now includes `tts.*` entities (HA 2024+ mobile_app companion services).
+
+### Changed
+- Cache-bust bumped to `?v=0915`.
+- Cluster headers show `in`/`out` type with interpunct separator and cluster count per endpoint.
+
 ## [0.9.14] - 2026-02-28
 
 ### Fixed

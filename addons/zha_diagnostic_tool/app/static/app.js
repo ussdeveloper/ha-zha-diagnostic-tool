@@ -1363,20 +1363,52 @@ function renderNetworkMap() {
   if (!nm.nodes || nm.nodesKey !== _devIds) {
     nm.nodesKey = _devIds;
     const count = devices.length;
-    const angleStep = (2 * Math.PI) / Math.max(count, 1);
-    nm.nodes = devices.map((dev, i) => {
-      const lqi = _devLqi(dev);
-      // Devices with better LQI placed closer to center
-      const minR = 80, maxR = 280;
-      const r = (maxR - (lqi / 255) * (maxR - minR)) * dpr;
-      const angle = i * angleStep - Math.PI / 2;
-      return {
-        dev,
-        x: Math.cos(angle) * r,
-        y: Math.sin(angle) * r,
-        vx: 0, vy: 0,
-      };
-    });
+
+    // Separate routers and end-devices for layered ring placement
+    const routers = devices.filter(d => d.device_type === "Router" || (d.power_source_str || "").includes("Main"));
+    const endDevices = devices.filter(d => !routers.includes(d));
+
+    // Simple seeded random for reproducible jitter (based on device count)
+    let _seed = count * 7 + 31;
+    const _srand = () => { _seed = (_seed * 16807 + 0) % 2147483647; return (_seed & 0xffff) / 0xffff; };
+
+    const nodes = [];
+    // Place routers in inner ring (closer to coordinator)
+    const rCount = routers.length || 1;
+    const rAngleStep = (2 * Math.PI) / rCount;
+    const rRadius = Math.max(160, Math.min(320, 100 + rCount * 35)) * dpr;
+    for (let i = 0; i < routers.length; i++) {
+      const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.3;
+      const r = rRadius + (_srand() - 0.5) * 60 * dpr;
+      nodes.push({ dev: routers[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, vx: 0, vy: 0 });
+    }
+    // Place end-devices in outer ring
+    const eCount = endDevices.length || 1;
+    const eAngleStep = (2 * Math.PI) / eCount;
+    const eRadius = rRadius + Math.max(120, Math.min(280, 60 + eCount * 20)) * dpr;
+    for (let i = 0; i < endDevices.length; i++) {
+      const dev = endDevices[i];
+      // If this end-device has a neighbor that is a router, place it near that router
+      const neighbors = dev.neighbors || [];
+      const parentRouter = neighbors.length
+        ? nodes.find(n => routers.includes(n.dev) && neighbors.some(nb => (nb.ieee || nb.ieee_address) === n.dev.ieee))
+        : null;
+      let x, y;
+      if (parentRouter) {
+        // Place near the parent router with some scatter
+        const angle = Math.atan2(parentRouter.y, parentRouter.x) + (_srand() - 0.5) * 1.2;
+        const dist = Math.sqrt(parentRouter.x ** 2 + parentRouter.y ** 2) + (60 + _srand() * 80) * dpr;
+        x = Math.cos(angle) * dist;
+        y = Math.sin(angle) * dist;
+      } else {
+        const angle = i * eAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.4;
+        const r = eRadius + (_srand() - 0.5) * 80 * dpr;
+        x = Math.cos(angle) * r;
+        y = Math.sin(angle) * r;
+      }
+      nodes.push({ dev, x, y, vx: 0, vy: 0 });
+    }
+    nm.nodes = nodes;
     // Start animated force-directed settling
     nm.animFrame = 0;
     nm.settled = false;
@@ -1722,17 +1754,19 @@ function _devLqi(dev) {
 }
 
 function _forceStep(nodes, dpr, damping) {
-  const repel = 1800 * dpr;  // Linear DPR scale, not quadratic
-  const attract = 0.025;
-  const center = 0.004;
+  const repel = 2400 * dpr;
+  const attract = 0.02;
+  const center = 0.003;
+  // Minimum separation distance to prevent overlap — scales with node count
+  const minSep = Math.max(45, 70 - nodes.length * 0.5) * dpr;
   if (damping == null) damping = 0.5;
 
   for (const a of nodes) {
     a.vx *= damping; a.vy *= damping;
-    // Center gravity
+    // Center gravity — pulls toward origin
     a.vx -= a.x * center;
     a.vy -= a.y * center;
-    // Repulsion between nodes
+    // Repulsion between all nodes
     for (const b of nodes) {
       if (a === b) continue;
       const dx = a.x - b.x, dy = a.y - b.y;
@@ -1741,6 +1775,13 @@ function _forceStep(nodes, dpr, damping) {
       const f = repel / d2;
       a.vx += (dx / dist) * f;
       a.vy += (dy / dist) * f;
+      // Hard separation — push apart if too close
+      if (dist < minSep) {
+        const push = (minSep - dist) * 0.5;
+        const nx = dx / dist, ny = dy / dist;
+        a.vx += nx * push;
+        a.vy += ny * push;
+      }
     }
     // Attraction to neighbors
     const neighbors = a.dev.neighbors || [];
@@ -1750,12 +1791,16 @@ function _forceStep(nodes, dpr, damping) {
       const target = nodes.find(n => n.dev.ieee === nbIeee && n !== a);
       if (!target) continue;
       const dx = target.x - a.x, dy = target.y - a.y;
-      a.vx += dx * attract;
-      a.vy += dy * attract;
+      const dist = Math.sqrt(dx*dx + dy*dy + 1);
+      // Only attract if farther than minSep — prevents collapse
+      if (dist > minSep * 1.5) {
+        a.vx += dx * attract;
+        a.vy += dy * attract;
+      }
     }
   }
   // Clamp velocity to prevent explosion
-  const maxV = 15 * dpr;
+  const maxV = 18 * dpr;
   for (const a of nodes) {
     a.vx = Math.max(-maxV, Math.min(maxV, a.vx));
     a.vy = Math.max(-maxV, Math.min(maxV, a.vy));
@@ -2638,26 +2683,28 @@ async function loadDevHelperClusters(ieee) {
   host.innerHTML = `<div class="row"><div class="entity-sub">${t("dh.loading_clusters")}</div></div>`;
 
   // Use embedded endpoint/cluster data from zha/devices (already fetched)
+  // ZHA WS returns input_clusters/output_clusters (sometimes as hex strings)
   const fullDev = state.zhaDevicesFull.find(d => d.ieee === ieee);
   if (fullDev && fullDev.endpoints) {
+    const _parseId = v => typeof v === "string" ? parseInt(v, v.startsWith("0x") ? 16 : 10) : Number(v);
     const epMap = {};
     for (const [epId, ep] of Object.entries(fullDev.endpoints)) {
-      const inClusters = (ep.in_clusters || []).map(cId => ({
-        id: cId,
-        name: ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`,
-        cluster_type: "in",
-      }));
-      const outClusters = (ep.out_clusters || []).map(cId => ({
-        id: cId,
-        name: ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`,
-        cluster_type: "out",
-      }));
+      const rawIn = ep.input_clusters || ep.in_clusters || [];
+      const rawOut = ep.output_clusters || ep.out_clusters || [];
+      const inClusters = rawIn.map(c => {
+        const cId = typeof c === "object" ? _parseId(c.id ?? c.cluster_id ?? 0) : _parseId(c);
+        return { id: cId, name: (typeof c === "object" && c.name) || ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`, cluster_type: "in" };
+      });
+      const outClusters = rawOut.map(c => {
+        const cId = typeof c === "object" ? _parseId(c.id ?? c.cluster_id ?? 0) : _parseId(c);
+        return { id: cId, name: (typeof c === "object" && c.name) || ZCL_HELP[cId]?.name || `Cluster 0x${cId.toString(16).padStart(4, "0")}`, cluster_type: "out" };
+      });
       epMap[epId] = {
         endpoint_id: parseInt(epId, 10) || 1,
         in_clusters: inClusters,
         out_clusters: outClusters,
-        profile_id: ep.profile_id,
-        device_type: ep.device_type,
+        profile_id: _parseId(ep.profile_id ?? 0),
+        device_type: _parseId(ep.device_type ?? 0),
       };
     }
     renderDevHelperClusters(ieee, epMap);
@@ -2694,29 +2741,38 @@ function renderDevHelperClusters(ieee, clusterData) {
     return;
   }
 
-  for (const ep of endpoints) {
+  const _pid = v => {
+    if (v == null) return null;
+    if (typeof v === "number") return v;
+    const s = String(v);
+    return s.startsWith("0x") ? parseInt(s, 16) : parseInt(s, 10);
+  };
+
+  for (let epIdx = 0; epIdx < endpoints.length; epIdx++) {
+    const ep = endpoints[epIdx];
     const epId = ep.endpoint_id ?? ep.id ?? 1;
-    const inClusters = ep.clusters?.in || ep.in_clusters || [];
-    const outClusters = ep.clusters?.out || ep.out_clusters || [];
+    const inClusters = ep.clusters?.in || ep.in_clusters || ep.input_clusters || [];
+    const outClusters = ep.clusters?.out || ep.out_clusters || ep.output_clusters || [];
     const allClusters = [
-      ...inClusters.map(c => ({ ...c, cluster_type: "in" })),
-      ...outClusters.map(c => ({ ...c, cluster_type: "out" })),
+      ...inClusters.map(c => ({ ...c, cluster_type: c.cluster_type || "in" })),
+      ...outClusters.map(c => ({ ...c, cluster_type: c.cluster_type || "out" })),
     ];
 
     {
-      const profileName = _zbProfileName(ep.profile_id);
-      const devTypeName = _zbDeviceTypeName(ep.profile_id, ep.device_type);
-      const epBadges = [profileName, devTypeName].filter(Boolean)
+      const profileName = _zbProfileName(_pid(ep.profile_id));
+      const devTypeName = _zbDeviceTypeName(_pid(ep.profile_id), _pid(ep.device_type));
+      const clusterCount = allClusters.length;
+      const badges = [profileName, devTypeName].filter(Boolean)
         .map(t => `<span class="ep-badge">${escapeHtml(t)}</span>`).join("");
       const epHeader = document.createElement("div");
       epHeader.className = "row";
-      epHeader.style.background = "var(--surface)";
-      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId}${epBadges}</div>`;
+      epHeader.style.cssText = "background:var(--surface);cursor:default";
+      epHeader.innerHTML = `<div class="entity-title"><i class="mdi mdi-chip"></i> Endpoint ${epId} ${badges} <span class="entity-sub" style="margin-left:6px">${clusterCount} cluster${clusterCount !== 1 ? "s" : ""}</span></div>`;
       host.appendChild(epHeader);
     }
 
     for (const cluster of allClusters) {
-      const cId = cluster.id ?? cluster.cluster_id ?? 0;
+      const cId = _pid(cluster.id ?? cluster.cluster_id ?? 0) || 0;
       const cName = cluster.name || ZCL_HELP[cId]?.name || `Cluster ${cId}`;
       const cType = cluster.cluster_type || "in";
 
@@ -2725,7 +2781,7 @@ function renderDevHelperClusters(ieee, clusterData) {
       header.innerHTML =
         `<i class="mdi mdi-chevron-right"></i>` +
         `<span>${escapeHtml(cName)}</span>` +
-        `<span class="entity-sub" style="margin-left:auto">0x${cId.toString(16).padStart(4, "0")} (${cType})</span>`;
+        `<span class="entity-sub" style="margin-left:auto">0x${cId.toString(16).padStart(4, "0")} · ${cType}</span>`;
 
       const attrs = document.createElement("div");
       attrs.className = "cluster-attrs";
@@ -2934,19 +2990,28 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
 async function devHelperIdentify() {
   const dev = state.devHelperSelected;
   if (!dev) return;
+  // Find the first endpoint that has Identify cluster (3) in input_clusters
+  let epId = 1;
+  if (dev.endpoints) {
+    const _pid = v => typeof v === "string" ? parseInt(v, v.startsWith("0x") ? 16 : 10) : Number(v);
+    for (const [eid, ep] of Object.entries(dev.endpoints)) {
+      const inIds = (ep.input_clusters || ep.in_clusters || []).map(c => typeof c === "object" ? _pid(c.id ?? c.cluster_id ?? 0) : _pid(c));
+      if (inIds.includes(3)) { epId = parseInt(eid, 10) || 1; break; }
+    }
+  }
   try {
     await api("api/zha-helper/command", {
       method: "POST",
       body: JSON.stringify({
         ieee: dev.ieee,
-        endpoint_id: 1,
+        endpoint_id: epId,
         cluster_id: 3,
         cluster_type: "in",
         command: 0,
         command_type: "server",
       }),
     });
-    setStatus(`Identify sent to ${dev.name || dev.ieee}`, false);
+    setStatus(`Identify sent to ${dev.name || dev.ieee} (EP ${epId})`, false);
   } catch (e) {
     setStatus(`Identify error: ${e.message}`, true);
   }
@@ -3479,23 +3544,46 @@ function openUnavailDevicesWin() {
   const devs = state.unavailableDevices || [];
   const body = $("unavail-devs-body");
   if (body) {
-    body.innerHTML = devs.length === 0
-      ? `<div class="entity-sub" style="padding:12px">${t("dh.no_unavail")}</div>`
-      : devs.map(d => {
-          const lqiHtml = d.lqi != null
-            ? `<span class="entity-sub" style="white-space:nowrap"> \u00B7 LQI ${d.lqi}</span>` : "";
-          const modelHtml = d.model ? ` \u00B7 <span class="entity-sub">${escapeHtml(d.model)}</span>` : "";
-          return `<div class="row" style="padding:5px 10px;gap:8px;align-items:start">
-            <i class="mdi mdi-wifi-off" style="color:#ff6b6b;flex-shrink:0;margin-top:2px"></i>
-            <div style="flex:1;min-width:0">
-              <div class="entity-title">${escapeHtml(d.name)}</div>
-              <div class="entity-sub">${escapeHtml(d.ieee)}${modelHtml}</div>
-            </div>
-            <div style="text-align:right;flex-shrink:0;white-space:nowrap">
-              <span class="entity-sub">${escapeHtml(d.device_type || "")}</span>${lqiHtml}
-            </div>
-          </div>`;
-        }).join("");
+    body.innerHTML = "";
+    if (!devs.length) {
+      body.innerHTML = `<div class="entity-sub" style="padding:12px">${t("dh.no_unavail")}</div>`;
+    } else {
+      for (const d of devs) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.style.cssText = "padding:5px 10px;gap:8px;align-items:start;cursor:pointer";
+        const lqiHtml = d.lqi != null
+          ? `<span class="entity-sub" style="white-space:nowrap"> \u00B7 LQI ${d.lqi}</span>` : "";
+        const modelHtml = d.model ? ` \u00B7 <span class="entity-sub">${escapeHtml(d.model)}</span>` : "";
+        row.innerHTML =
+          `<i class="mdi mdi-wifi-off" style="color:#ff6b6b;flex-shrink:0;margin-top:2px"></i>` +
+          `<div style="flex:1;min-width:0">` +
+            `<div class="entity-title">${escapeHtml(d.name)}</div>` +
+            `<div class="entity-sub">${escapeHtml(d.ieee)}${modelHtml}</div>` +
+          `</div>` +
+          `<div style="text-align:right;flex-shrink:0;white-space:nowrap">` +
+            `<span class="entity-sub">${escapeHtml(d.device_type || "")}</span>${lqiHtml}` +
+          `</div>`;
+        row.addEventListener("click", () => {
+          // Find a matching entity by device_ieee, or build a synthetic entity item
+          const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
+          const match = allEntities.find(e => e.device_ieee && e.device_ieee === d.ieee);
+          if (match) {
+            openDeviceDetail(match);
+          } else {
+            // Synthetic entity for this device
+            openDeviceDetail({
+              entity_id: `zha.${(d.name || d.ieee).replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+              friendly_name: d.name || d.ieee,
+              device_ieee: d.ieee,
+              state: "unavailable",
+              icon: "mdi:wifi-off",
+            });
+          }
+        });
+        body.appendChild(row);
+      }
+    }
   }
   WM.open("unavail-devs-win");
 }

@@ -219,6 +219,7 @@ class DiagnosticRuntime:
                         "friendly_name": attrs.get("friendly_name", entity_id),
                         "unit": attrs.get("unit_of_measurement"),
                         "icon": attrs.get("icon", "mdi:gauge"),
+                        "device_ieee": attrs.get("ieee") or attrs.get("device_ieee") or "",
                     }
                 )
 
@@ -251,8 +252,8 @@ class DiagnosticRuntime:
                     }
                 )
 
-            # Notify entities
-            if entity_id.startswith("notify."):
+            # Notify entities — notify.*, but also tts.* and mobile_app companion services
+            if entity_id.startswith(("notify.", "tts.")):
                 notify_entities.append(
                     {
                         "entity_id": entity_id,
