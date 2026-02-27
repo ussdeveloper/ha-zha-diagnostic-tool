@@ -2761,8 +2761,19 @@ function renderClusterAttributes(container, ieee, endpointId, clusterId, cluster
   const zclCluster = ZCL_HELP[clusterId];
 
   // ── Commands Section ──
-  const serverCmds = commands.server_commands || commands.server || {};
-  const clientCmds = commands.client_commands || commands.client || {};
+  // HA WS returns a list: [{type:"server",id:0,name:"off"}, ...] or a dict {server_commands:{...}, ...}
+  let serverCmds = {};
+  let clientCmds = {};
+  if (Array.isArray(commands)) {
+    for (const c of commands) {
+      const t = (c.type || "server").toLowerCase();
+      const target = t === "client" ? clientCmds : serverCmds;
+      target[c.id ?? c.command_id ?? 0] = c.name || `cmd_${c.id}`;
+    }
+  } else if (commands && typeof commands === "object") {
+    serverCmds = commands.server_commands || commands.server || {};
+    clientCmds = commands.client_commands || commands.client || {};
+  }
   const hasCommands = Object.keys(serverCmds).length + Object.keys(clientCmds).length > 0;
 
   if (hasCommands) {
