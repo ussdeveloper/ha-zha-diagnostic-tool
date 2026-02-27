@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.18] - 2026-02-28
+
+### Fixed
+- **Entity-device binding**: `openDeviceDetail()` now uses `deviceEntityMap` (HA registry) as primary lookup — much more reliable entity matching for device windows.
+- **Network map double-click**: uses `deviceEntityMap` first to find real entities for IEEE address instead of unreliable slug matching.
+- **Device Helper**: `endpoint_id` and `attribute` values always sent as proper integers to backend (fixes type mismatch errors).
+- **Network map force layout**: stronger repulsion (8000), wider idealDist (110-200), soft separation zone (1x-2x idealDist) for label readability, more animation frames (300 max, 5 iters early), wider initial ring spread.
+
+### Added
+- **ZCL database**: expanded from 12 to ~95 standard ZCL clusters with comprehensive attribute definitions — covers Basic(0), Power Config(1), Device Temp(2), Identify(3), Groups(4), Scenes(5), On/Off(6), Switch Config(7), Level Control(8), Alarms(9), Time(10), RSSI Location(11), Analog/Binary/Multistate I/O(12-20), Commissioning(21), OTA Upgrade(25), Power Profile(26), Poll Control(32), Green Power(33), Shade(256), Door Lock(257), Window Covering(258), Barrier Control(259), Pump Config(512), Thermostat(513), Fan Control(514), Dehumidification(515), Thermostat UI(516), Color Control(768) with 25 attrs, Ballast(769), Illuminance(1024-1025), Temperature(1026), Pressure(1027), Flow(1028), Humidity(1029), Occupancy(1030) with ultrasonic/physical attrs, Leaf Wetness(1032), Soil Moisture(1033), pH(1034), EC(1035), Wind Speed(1036), CO₂(1037), PM2.5(1038), Formaldehyde(1039), CO(1040), IAS Zone(1280), IAS ACE(1281), IAS WD(1282), Price(1792), DRLC(1793), Metering(1794) with 27 attrs, Meter ID(2817), Electrical Measurement(2820) with 40+ attrs incl. Phase B/C, Diagnostics(2821) with 30 attrs, Touchlink(4096).
+- **Manufacturer-specific clusters**: Xiaomi Aqara(0xFC00) with opple/custom attrs, Xiaomi MiJia(0xFC10/FC11), Tuya(0xEF00) with DP attrs, Xiaomi Private(0xFF01/FF02) with battery/temp/power attrs, Ikea(0xFC7E), Ikea Air Purifier(0xFC7C), Schneider(0xFC82), Legrand(0xFC02), Philips Hue(0xFC30), Osram(0xFC0F), HEIMAN(0xFD05), Sonoff(0xFCC0).
+
+### Changed
+- Cache-bust bumped to `?v=0918`.
+
 ## [0.9.17] - 2026-02-28
 
 ### Fixed

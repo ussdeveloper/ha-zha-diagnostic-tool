@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.14] - 2026-02-28
+
+### Fixed
+- Entity-device binding: `openDeviceDetail()` + network map double-click now use `deviceEntityMap` from HA registry as primary lookup.
+- Device Helper: endpoint/attribute IDs always sent as proper integers.
+- Network map: stronger force layout — wider spacing, soft separation zone, more animation frames.
+
+### Added
+- ZCL database: expanded from 12 to ~95 clusters with comprehensive attributes (standard ZCL + manufacturer-specific: Xiaomi, Tuya, Ikea, Philips, etc.).
+
 ## [0.10.13] - 2026-02-28
 
 ### Fixed

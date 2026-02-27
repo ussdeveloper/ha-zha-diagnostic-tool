@@ -1161,13 +1161,20 @@ function openDeviceDetail(entityItem) {
   const winId = existingId;
   ++state.deviceWinCount;
 
-  // All entities for this device — prefer device_ieee matching
+  // All entities for this device — prefer deviceEntityMap, then device_ieee, then slug
   const allEntities = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
-  let related;
-  if (deviceIeee) {
+  let related = [];
+  // 1st priority: deviceEntityMap (ieee → [entity_id, ...]) from backend registries
+  if (deviceIeee && state.deviceEntityMap && state.deviceEntityMap[deviceIeee]) {
+    const mapIds = new Set(state.deviceEntityMap[deviceIeee]);
+    related = allEntities.filter(e => mapIds.has(e.entity_id));
+  }
+  // 2nd priority: match by device_ieee field on entities
+  if (!related.length && deviceIeee) {
     related = allEntities.filter(e => e.device_ieee && e.device_ieee === deviceIeee);
-  } else {
-    // Fallback: slug-based matching
+  }
+  // 3rd fallback: slug-based matching
+  if (!related.length) {
     let slug = namePart;
     const suffixes = ["_temperature", "_humidity", "_battery", "_motion",
       "_occupancy", "_illuminance", "_power", "_energy", "_pressure",
@@ -1578,8 +1585,8 @@ function renderNetworkMap() {
     const count = devices.length;
 
     // Scale radii to available canvas area (world-space pixels)
-    const canvasR = Math.min(w, h) * 0.42; // use 42% of smaller dimension for wider spread
-    const baseR = Math.max(canvasR * 0.35, 100 * dpr);
+    const canvasR = Math.min(w, h) * 0.45; // use 45% of smaller dimension for wider spread
+    const baseR = Math.max(canvasR * 0.4, 120 * dpr);
 
     // Separate routers and end-devices for layered ring placement
     const routers = devices.filter(d => d.device_type === "Router" || (d.power_source_str || "").includes("Main"));
@@ -1601,7 +1608,7 @@ function renderNetworkMap() {
     // Routers in inner ring
     const rCount = Math.max(routers.length, 1);
     const rAngleStep = (2 * Math.PI) / rCount;
-    const rRadius = baseR + rCount * 12 * dpr;
+    const rRadius = baseR + rCount * 16 * dpr;
     for (let i = 0; i < routers.length; i++) {
       const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.25;
       const r = rRadius + (_srand() - 0.5) * 40 * dpr;
@@ -1611,7 +1618,7 @@ function renderNetworkMap() {
     // End-devices in outer ring — near parent router if topology available
     const eCount = Math.max(endDevices.length, 1);
     const eAngleStep = (2 * Math.PI) / eCount;
-    const eRadius = rRadius + baseR * 0.9;
+    const eRadius = rRadius + baseR * 1.1;
     for (let i = 0; i < endDevices.length; i++) {
       const dev = endDevices[i];
       const devNbs = nbMap.get(dev.ieee) || [];
@@ -2006,17 +2013,17 @@ function _startForceAnimation() {
     if (!nm.nodes || nm.settled) return;
     const dpr = window.devicePixelRatio || 1;
     // Progressive damping: starts loose, tightens over time
-    const progress = Math.min(nm.animFrame / 80, 1);
-    const damping = 0.6 - progress * 0.25; // 0.6 → 0.35
+    const progress = Math.min(nm.animFrame / 120, 1);
+    const damping = 0.65 - progress * 0.3; // 0.65 → 0.35
     // Run iterations per frame (more early, fewer late)
-    const iters = nm.animFrame < 30 ? 4 : 2;
+    const iters = nm.animFrame < 40 ? 5 : nm.animFrame < 80 ? 3 : 2;
     for (let i = 0; i < iters; i++) _forceStep(nm.nodes, dpr, damping);
     nm.animFrame++;
     renderNetworkMap();
     // Check convergence: total velocity
     let totalV = 0;
     for (const n of nm.nodes) totalV += Math.abs(n.vx) + Math.abs(n.vy);
-    if (nm.animFrame > 200 || totalV < 0.3) {
+    if (nm.animFrame > 300 || totalV < 0.2) {
       nm.settled = true;
       nm._animId = null;
       renderNetworkMap();
@@ -2041,11 +2048,11 @@ function _devLqi(dev) {
 function _forceStep(nodes, dpr, damping) {
   const n = nodes.length;
   if (!n) return;
-  // Minimum desired spacing — much wider to prevent label overlap
-  const idealDist = Math.max(90, 160 - n * 0.6) * dpr;
-  const repel = 5000 * dpr; // stronger repulsion
-  const attractK = 0.012;
-  const centerK = 0.0005; // very weak center gravity — just prevents infinite drift
+  // Collision radius scales with node count — more nodes → more spacing needed
+  const idealDist = Math.max(110, 200 - n * 0.5) * dpr;
+  const repel = 8000 * dpr; // strong repulsion for readability
+  const attractK = 0.008;
+  const centerK = 0.0003; // very weak center gravity
   if (damping == null) damping = 0.5;
 
   for (const a of nodes) {
@@ -2060,14 +2067,21 @@ function _forceStep(nodes, dpr, damping) {
       const d2 = dx * dx + dy * dy + 1;
       const dist = Math.sqrt(d2);
       const nx = dx / dist, ny = dy / dist;
-      // Coulomb-style repulsion
+      // Coulomb-style repulsion — falls off with distance squared
       a.vx += nx * repel / d2;
       a.vy += ny * repel / d2;
-      // Hard push-apart if overlapping — very strong within idealDist
+      // Hard collision boundary — strong push when overlapping idealDist
       if (dist < idealDist) {
-        const push = (idealDist - dist) * 0.8;
+        const overlap = idealDist - dist;
+        const push = overlap * 1.2; // strong push-apart
         a.vx += nx * push;
         a.vy += ny * push;
+      }
+      // Soft separation for label readability — weaker push in 1x-2x idealDist range
+      else if (dist < idealDist * 2) {
+        const softPush = (idealDist * 2 - dist) * 0.15;
+        a.vx += nx * softPush;
+        a.vy += ny * softPush;
       }
     }
     // Attraction to neighbors (only if topology data exists)
@@ -2079,15 +2093,15 @@ function _forceStep(nodes, dpr, damping) {
       if (!target) continue;
       const dx = target.x - a.x, dy = target.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy + 1);
-      // Spring — attract when far from ideal distance
-      if (dist > idealDist * 1.5) {
-        const strength = attractK * (dist - idealDist);
+      // Spring — attract when far from ideal distance, repel when too close
+      if (dist > idealDist * 1.8) {
+        const strength = attractK * (dist - idealDist * 1.5);
         a.vx += (dx / dist) * strength;
         a.vy += (dy / dist) * strength;
       }
     }
   }
-  const maxV = 20 * dpr;
+  const maxV = 25 * dpr;
   for (const a of nodes) {
     a.vx = Math.max(-maxV, Math.min(maxV, a.vx));
     a.vy = Math.max(-maxV, Math.min(maxV, a.vy));
@@ -2239,17 +2253,33 @@ function initNetworkMap() {
 
     if (hit) {
       const dev = hit.dev;
-      // Build a synthetic entity so openDeviceDetail can match related entities by name slug
-      const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
-      const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      // Try to find an existing ZHA entity for this device
+      const ieee = dev.ieee || "";
+      // Try to find a real entity for this device via deviceEntityMap (most reliable)
       const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
-      let entity = allItems.find(e => {
-        const n = (e.entity_id.split(".")[1] || "").toLowerCase();
-        return n === slug || n.startsWith(slug + "_") || (slug.length >= 4 && n.startsWith(slug.slice(0, Math.max(4, slug.length - 2))));
-      });
+      let entity = null;
+
+      // 1st: deviceEntityMap lookup
+      if (ieee && state.deviceEntityMap && state.deviceEntityMap[ieee]) {
+        const mapIds = state.deviceEntityMap[ieee];
+        if (mapIds.length) entity = allItems.find(e => e.entity_id === mapIds[0]);
+      }
+      // 2nd: match by device_ieee field on entities
+      if (!entity && ieee) {
+        entity = allItems.find(e => e.device_ieee === ieee);
+      }
+      // 3rd: slug-based fallback
+      if (!entity) {
+        const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
+        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        entity = allItems.find(e => {
+          const n = (e.entity_id.split(".")[1] || "").toLowerCase();
+          return n === slug || n.startsWith(slug + "_") || (slug.length >= 4 && n.startsWith(slug.slice(0, Math.max(4, slug.length - 2))));
+        });
+      }
       if (!entity) {
         // Fallback: synthetic entity from device data
+        const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
+        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
         const iconCls = dev.device_type === "Router" ? "mdi:router-wireless" : "mdi:zigbee";
         entity = {
           entity_id: `device.${slug}`,
@@ -2257,6 +2287,7 @@ function initNetworkMap() {
           state: dev.available === false ? "unavailable" : "online",
           icon: iconCls,
           lqi: _devLqi(dev),
+          device_ieee: ieee,
           _deviceRaw: dev,
         };
       }
@@ -2808,64 +2839,817 @@ const _origRenderDesktopFolders = typeof renderDesktopFolders === "function" ? r
    ======================================================== */
 
 const ZCL_HELP = {
+  // ── General clusters ──
   0: { name: "Basic", attrs: {
     0: { n: "zcl_version", h: "ZCL version" },
+    1: { n: "application_version", h: "Application version" },
+    2: { n: "stack_version", h: "Stack version" },
     3: { n: "hw_version", h: "Hardware version" },
     4: { n: "manufacturer_name", h: "Manufacturer name" },
     5: { n: "model_identifier", h: "Model ID" },
-    7: { n: "power_source", h: "Power source: 1=Mains, 3=Battery" },
+    6: { n: "date_code", h: "Date code" },
+    7: { n: "power_source", h: "Power source: 0=Unknown, 1=Mains(single), 2=Mains(3-phase), 3=Battery, 4=DC, 5=EmergencyMains, 6=EmergencyMains+Batt" },
+    8: { n: "generic_device_class", h: "Generic device class" },
+    9: { n: "generic_device_type", h: "Generic device type" },
+    10: { n: "product_code", h: "Product code" },
+    11: { n: "product_url", h: "Product URL" },
+    16: { n: "location_desc", h: "Location description (max 16 chars)" },
+    17: { n: "physical_env", h: "Physical environment enum" },
+    18: { n: "device_enabled", h: "0=Disabled, 1=Enabled" },
+    19: { n: "alarm_mask", h: "Alarm mask bitmap" },
+    20: { n: "disable_local_config", h: "Disable local config bitmap" },
     16384: { n: "sw_build_id", h: "Software build" },
   }},
-  1: { name: "Power Config", attrs: {
+  1: { name: "Power Configuration", attrs: {
+    0: { n: "mains_voltage", h: "Mains voltage (100mV)" },
+    1: { n: "mains_frequency", h: "Mains frequency (Hz/2)" },
+    16: { n: "mains_alarm_mask", h: "Mains alarm mask" },
+    17: { n: "mains_voltage_min_threshold", h: "Min voltage threshold (100mV)" },
+    18: { n: "mains_voltage_max_threshold", h: "Max voltage threshold (100mV)" },
+    19: { n: "mains_voltage_dwell_trip_point", h: "Dwell trip point" },
     32: { n: "battery_voltage", h: "Battery voltage (100mV units)" },
-    33: { n: "battery_%_remaining", h: "Battery % (0-200, /2 for %)" },
+    33: { n: "battery_percentage_remaining", h: "Battery % (0-200, /2 for %)" },
+    48: { n: "battery_manufacturer", h: "Battery manufacturer" },
+    49: { n: "battery_size", h: "0=None, 1=Built-in, 2=Other, 3=AA, 4=AAA, 5=C, 6=D, 7=CR2, 8=CR123A, 255=Unknown" },
+    50: { n: "battery_a_hr_rating", h: "Battery rating (mAh)" },
+    51: { n: "battery_quantity", h: "Number of batteries" },
+    52: { n: "battery_rated_voltage", h: "Rated voltage (100mV)" },
+    53: { n: "battery_alarm_mask", h: "Battery alarm mask" },
+    54: { n: "battery_voltage_min_threshold", h: "Min battery voltage (100mV)" },
+    55: { n: "battery_voltage_threshold1", h: "Battery voltage threshold 1 (100mV)" },
+    56: { n: "battery_voltage_threshold2", h: "Battery voltage threshold 2 (100mV)" },
+    57: { n: "battery_voltage_threshold3", h: "Battery voltage threshold 3 (100mV)" },
+    58: { n: "battery_percentage_min_threshold", h: "Min battery % threshold" },
+    59: { n: "battery_percentage_threshold1", h: "Battery % threshold 1" },
+    60: { n: "battery_percentage_threshold2", h: "Battery % threshold 2" },
+    61: { n: "battery_percentage_threshold3", h: "Battery % threshold 3" },
+    62: { n: "battery_alarm_state", h: "Battery alarm state bitmap" },
+  }},
+  2: { name: "Device Temperature", attrs: {
+    0: { n: "current_temperature", h: "Current device temperature (\u00B0C)" },
+    1: { n: "min_temp_experienced", h: "Min temp experienced (\u00B0C)" },
+    2: { n: "max_temp_experienced", h: "Max temp experienced (\u00B0C)" },
+    16: { n: "over_temp_total_dwell", h: "Over-temp total dwell time" },
+    17: { n: "device_temp_alarm_mask", h: "Alarm mask bitmap" },
+    18: { n: "low_temp_threshold", h: "Low temp threshold (\u00B0C)" },
+    19: { n: "high_temp_threshold", h: "High temp threshold (\u00B0C)" },
+    20: { n: "low_temp_dwell_trip_point", h: "Low temp dwell trip point" },
+    21: { n: "high_temp_dwell_trip_point", h: "High temp dwell trip point" },
   }},
   3: { name: "Identify", attrs: {
     0: { n: "identify_time", h: "Write >0 to blink device (seconds)" },
   }},
+  4: { name: "Groups", attrs: {
+    0: { n: "name_support", h: "Group name support bitmap" },
+  }},
+  5: { name: "Scenes", attrs: {
+    0: { n: "scene_count", h: "Number of scenes in table" },
+    1: { n: "current_scene", h: "Currently active scene ID" },
+    2: { n: "current_group", h: "Group ID of current scene" },
+    3: { n: "scene_valid", h: "0=Invalid, 1=Valid" },
+    4: { n: "name_support", h: "Scene name support bitmap" },
+    5: { n: "last_configured_by", h: "IEEE of last configuring device" },
+  }},
   6: { name: "On/Off", attrs: {
     0: { n: "on_off", h: "0=Off, 1=On" },
+    16384: { n: "global_scene_control", h: "Global scene control" },
+    16385: { n: "on_time", h: "On time (1/10 sec)" },
+    16386: { n: "off_wait_time", h: "Off wait time (1/10 sec)" },
     16387: { n: "start_up_on_off", h: "Startup: 0=Off, 1=On, 2=Toggle, 255=Previous" },
+  }},
+  7: { name: "On/Off Switch Config", attrs: {
+    0: { n: "switch_type", h: "0=Toggle, 1=Momentary, 2=Multifunction" },
+    16: { n: "switch_actions", h: "0=On/Off, 1=Off/On, 2=Toggle" },
   }},
   8: { name: "Level Control", attrs: {
     0: { n: "current_level", h: "Brightness (0-254)" },
+    1: { n: "remaining_time", h: "Remaining transition time (1/10 sec)" },
+    2: { n: "min_level", h: "Minimum level" },
+    3: { n: "max_level", h: "Maximum level" },
+    15: { n: "options", h: "Level options bitmap" },
     16: { n: "on_off_transition_time", h: "Transition 1/10s" },
+    17: { n: "on_level", h: "Level when turned on (0-254, 255=prev)" },
+    18: { n: "on_transition_time", h: "On transition time (1/10 sec)" },
+    19: { n: "off_transition_time", h: "Off transition time (1/10 sec)" },
     16384: { n: "start_up_current_level", h: "Startup level: 0=min, 255=prev" },
+  }},
+  9: { name: "Alarms", attrs: {
+    0: { n: "alarm_count", h: "Number of active alarms" },
+  }},
+  10: { name: "Time", attrs: {
+    0: { n: "time", h: "UTC time (seconds since 2000-01-01)" },
+    1: { n: "time_status", h: "Time status bitmap" },
+    2: { n: "time_zone", h: "Timezone offset (seconds from UTC)" },
+    3: { n: "dst_start", h: "DST start time" },
+    4: { n: "dst_end", h: "DST end time" },
+    5: { n: "dst_shift", h: "DST shift (seconds)" },
+    6: { n: "standard_time", h: "Standard time" },
+    7: { n: "local_time", h: "Local time" },
+    8: { n: "last_set_time", h: "Last set time" },
+    9: { n: "valid_until_time", h: "Valid until time" },
+  }},
+  11: { name: "RSSI Location", attrs: {
+    0: { n: "location_type", h: "Location type" },
+    1: { n: "location_method", h: "Location method" },
+    2: { n: "location_age", h: "Age of location data (sec)" },
+    3: { n: "quality_measure", h: "Location quality measure" },
+    4: { n: "number_of_devices", h: "Number of devices for location" },
+  }},
+  12: { name: "Analog Input", attrs: {
+    28: { n: "description", h: "Description text" },
+    55: { n: "max_present_value", h: "Maximum value" },
+    69: { n: "min_present_value", h: "Minimum value" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "Current value" },
+    103: { n: "reliability", h: "Reliability enum" },
+    106: { n: "resolution", h: "Resolution" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    117: { n: "engineering_units", h: "Engineering units enum" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  13: { name: "Analog Output", attrs: {
+    28: { n: "description", h: "Description text" },
+    55: { n: "max_present_value", h: "Maximum value" },
+    69: { n: "min_present_value", h: "Minimum value" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "Current output value" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability enum" },
+    104: { n: "relinquish_default", h: "Relinquish default value" },
+    106: { n: "resolution", h: "Resolution" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    117: { n: "engineering_units", h: "Engineering units enum" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  14: { name: "Analog Value", attrs: {
+    28: { n: "description", h: "Description" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "Current analog value" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability enum" },
+    104: { n: "relinquish_default", h: "Relinquish default" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    117: { n: "engineering_units", h: "Engineering units" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  15: { name: "Binary Input", attrs: {
+    4: { n: "active_text", h: "Text for active state" },
+    28: { n: "description", h: "Description" },
+    46: { n: "inactive_text", h: "Text for inactive state" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    84: { n: "polarity", h: "0=Normal, 1=Reversed" },
+    85: { n: "present_value", h: "0=Inactive, 1=Active" },
+    103: { n: "reliability", h: "Reliability enum" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  16: { name: "Binary Output", attrs: {
+    4: { n: "active_text", h: "Text for active state" },
+    28: { n: "description", h: "Description" },
+    46: { n: "inactive_text", h: "Text for inactive state" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    84: { n: "polarity", h: "0=Normal, 1=Reversed" },
+    85: { n: "present_value", h: "0=Inactive, 1=Active" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability enum" },
+    104: { n: "relinquish_default", h: "Relinquish default" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  17: { name: "Binary Value", attrs: {
+    4: { n: "active_text", h: "Active state text" },
+    28: { n: "description", h: "Description" },
+    46: { n: "inactive_text", h: "Inactive state text" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "0=Inactive, 1=Active" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability enum" },
+    104: { n: "relinquish_default", h: "Relinquish default" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  18: { name: "Multistate Input", attrs: {
+    14: { n: "state_text", h: "Array of state descriptions" },
+    28: { n: "description", h: "Description" },
+    74: { n: "number_of_states", h: "Number of states" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "Current state (1-based)" },
+    103: { n: "reliability", h: "Reliability enum" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  19: { name: "Multistate Output", attrs: {
+    14: { n: "state_text", h: "Array of state descriptions" },
+    28: { n: "description", h: "Description" },
+    74: { n: "number_of_states", h: "Number of states" },
+    81: { n: "out_of_service", h: "0=In service, 1=Out of service" },
+    85: { n: "present_value", h: "Current state" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability enum" },
+    104: { n: "relinquish_default", h: "Relinquish default" },
+    111: { n: "status_flags", h: "Status flags bitmap" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  20: { name: "Multistate Value", attrs: {
+    14: { n: "state_text", h: "Array of state descriptions" },
+    28: { n: "description", h: "Description" },
+    74: { n: "number_of_states", h: "Number of states" },
+    81: { n: "out_of_service", h: "Out of service" },
+    85: { n: "present_value", h: "Current state" },
+    87: { n: "priority_array", h: "Priority array" },
+    103: { n: "reliability", h: "Reliability" },
+    104: { n: "relinquish_default", h: "Relinquish default" },
+    111: { n: "status_flags", h: "Status flags" },
+    256: { n: "application_type", h: "Application type" },
+  }},
+  21: { name: "Commissioning", attrs: {
+    0: { n: "short_address", h: "Short (NWK) address" },
+    1: { n: "extended_pan_id", h: "Extended PAN ID" },
+    2: { n: "pan_id", h: "PAN ID" },
+    3: { n: "channel_mask", h: "Channel mask bitmap" },
+    4: { n: "protocol_version", h: "Protocol version" },
+    5: { n: "stack_profile", h: "Stack profile" },
+    6: { n: "startup_control", h: "0=Part of network, 1=Form network, 2=Rejoin, 3=Start from scratch" },
+    16: { n: "trust_center_address", h: "Trust center IEEE address" },
+    18: { n: "network_key", h: "Network key" },
+    19: { n: "use_insecure_join", h: "0=Secure, 1=Insecure join" },
+    26: { n: "network_key_seq_num", h: "Network key sequence number" },
+    27: { n: "network_key_type", h: "Network key type" },
+    28: { n: "network_manager_address", h: "Network manager address" },
+    48: { n: "scan_attempts", h: "Number of scan attempts" },
+    49: { n: "time_between_scans", h: "Time between scans (ms)" },
+    50: { n: "rejoin_interval", h: "Rejoin interval (sec)" },
+    51: { n: "max_rejoin_interval", h: "Max rejoin interval (sec)" },
+  }},
+  25: { name: "OTA Upgrade", attrs: {
+    0: { n: "upgrade_server_id", h: "OTA upgrade server IEEE" },
+    1: { n: "file_offset", h: "Current file offset" },
+    2: { n: "current_file_version", h: "Current firmware version" },
+    3: { n: "current_zigbee_stack_version", h: "Current Zigbee stack version" },
+    4: { n: "downloaded_file_version", h: "Downloaded firmware version" },
+    5: { n: "downloaded_zigbee_stack_version", h: "Downloaded stack version" },
+    6: { n: "image_upgrade_status", h: "0=Normal, 1=Download in progress, 2=Download complete, 3=Waiting to upgrade, 4=Count down, 5=Wait for more" },
+    7: { n: "manufacturer_id", h: "Manufacturer ID" },
+    8: { n: "image_type_id", h: "Image type ID" },
+    9: { n: "min_block_period", h: "Min block request delay (ms)" },
+    10: { n: "image_stamp", h: "Image stamp" },
+    11: { n: "upgrade_activation_policy", h: "0=OTA server, 1=Out-of-band" },
+    12: { n: "upgrade_timeout_policy", h: "0=Apply after timeout, 1=Don't apply" },
+  }},
+  26: { name: "Power Profile", attrs: {
+    0: { n: "total_profile_num", h: "Total power profiles" },
+    1: { n: "multiple_scheduling", h: "Multiple scheduling support" },
+    2: { n: "energy_formatting", h: "Energy formatting" },
+    3: { n: "energy_remote", h: "Energy remote control" },
+    4: { n: "schedule_mode", h: "Schedule mode" },
   }},
   32: { name: "Poll Control", attrs: {
     0: { n: "check_in_interval", h: "Check-in (quarter-sec). Lower = responsive, more battery" },
     1: { n: "long_poll_interval", h: "Long poll (quarter-sec)" },
     2: { n: "short_poll_interval", h: "Short poll (quarter-sec)" },
     3: { n: "fast_poll_timeout", h: "Fast poll timeout (quarter-sec)" },
+    4: { n: "check_in_interval_min", h: "Min check-in interval" },
+    5: { n: "long_poll_interval_min", h: "Min long poll interval" },
+    6: { n: "fast_poll_timeout_max", h: "Max fast poll timeout" },
   }},
+  33: { name: "Green Power", attrs: {
+    0: { n: "max_sink_table_entries", h: "Max sink table entries" },
+    1: { n: "sink_table", h: "GP sink table" },
+    2: { n: "communication_mode", h: "GP communication mode" },
+    3: { n: "commissioning_exit_mode", h: "Commissioning exit mode" },
+    4: { n: "commissioning_window", h: "Commissioning window (sec)" },
+    5: { n: "security_level", h: "GP security level" },
+    6: { n: "functionality", h: "GP functionality bitmap" },
+    7: { n: "active_functionality", h: "Active GP functionality bitmap" },
+  }},
+
+  // ── Closures clusters ──
+  256: { name: "Shade Configuration", attrs: {
+    0: { n: "physical_closed_limit", h: "Physical closed limit" },
+    1: { n: "motor_step_size", h: "Motor step size" },
+    2: { n: "status", h: "Shade status" },
+    16: { n: "closed_limit", h: "Closed limit" },
+    18: { n: "mode", h: "Shade mode" },
+  }},
+  257: { name: "Door Lock", attrs: {
+    0: { n: "lock_state", h: "0=Not fully locked, 1=Locked, 2=Unlocked, 255=Undefined" },
+    1: { n: "lock_type", h: "Lock type enum" },
+    2: { n: "actuator_enabled", h: "0=Disabled, 1=Enabled" },
+    3: { n: "door_state", h: "0=Open, 1=Closed, 2=Error jammed, 3=Forced open, 4=Invalid, 255=Undefined" },
+    4: { n: "door_open_events", h: "Door open events counter" },
+    5: { n: "door_closed_events", h: "Door closed events counter" },
+    6: { n: "open_period", h: "Open period (min)" },
+    17: { n: "num_lock_records_supported", h: "Max lock records" },
+    18: { n: "num_total_users_supported", h: "Max total users" },
+    19: { n: "num_pin_users_supported", h: "Max PIN users" },
+    20: { n: "num_rfid_users_supported", h: "Max RFID users" },
+    21: { n: "num_weekday_schedules_per_user", h: "Weekday schedules/user" },
+    22: { n: "num_yearday_schedules_per_user", h: "Year-day schedules/user" },
+    23: { n: "num_holiday_schedules", h: "Holiday schedules" },
+    24: { n: "max_pin_code_length", h: "Max PIN length" },
+    25: { n: "min_pin_code_length", h: "Min PIN length" },
+    26: { n: "max_rfid_code_length", h: "Max RFID code length" },
+    27: { n: "min_rfid_code_length", h: "Min RFID code length" },
+    32: { n: "enable_logging", h: "Enable event logging" },
+    33: { n: "language", h: "Lock language" },
+    35: { n: "auto_relock_time", h: "Auto re-lock time (sec)" },
+    36: { n: "sound_volume", h: "0=Silent, 1=Low, 2=High" },
+    37: { n: "operating_mode", h: "0=Normal, 1=Vacation, 2=Privacy, 3=No RF, 4=Passage" },
+    41: { n: "enable_one_touch_locking", h: "One-touch locking" },
+    48: { n: "wrong_code_entry_limit", h: "Max wrong code attempts" },
+    49: { n: "user_code_temporary_disable_time", h: "Lockout time (sec)" },
+    51: { n: "require_pi_nfor_rf_operation", h: "Require PIN for RF" },
+  }},
+  258: { name: "Window Covering", attrs: {
+    0: { n: "window_covering_type", h: "0=Rollershade, 1=Rollershade2, 2=RollershadeExterior, 3=RollershadeExterior2, 4=Drapery, 5=Awning, 6=Shutter, 7=TiltBlindTiltOnly, 8=TiltBlindLiftTilt, 9=ProjectorScreen" },
+    1: { n: "physical_closed_limit_lift", h: "Physical closed limit (lift)" },
+    2: { n: "physical_closed_limit_tilt", h: "Physical closed limit (tilt)" },
+    3: { n: "current_position_lift", h: "Current lift position" },
+    4: { n: "current_position_tilt", h: "Current tilt position" },
+    5: { n: "number_of_actuations_lift", h: "Lift actuations counter" },
+    6: { n: "number_of_actuations_tilt", h: "Tilt actuations counter" },
+    7: { n: "config_status", h: "Config/status bitmap" },
+    8: { n: "current_position_lift_percentage", h: "Lift position % (0-100)" },
+    9: { n: "current_position_tilt_percentage", h: "Tilt position % (0-100)" },
+    16: { n: "installed_open_limit_lift", h: "Open limit lift" },
+    17: { n: "installed_closed_limit_lift", h: "Closed limit lift" },
+    18: { n: "installed_open_limit_tilt", h: "Open limit tilt" },
+    19: { n: "installed_closed_limit_tilt", h: "Closed limit tilt" },
+    23: { n: "mode", h: "Mode: 0=Normal, 1=LEDs, 2=Maintenance" },
+  }},
+  259: { name: "Barrier Control", attrs: {
+    1: { n: "moving_state", h: "0=Stopped, 1=Closing, 2=Opening" },
+    2: { n: "safety_status", h: "Safety status bitmap" },
+    3: { n: "capabilities", h: "Capabilities bitmap" },
+    10: { n: "barrier_position", h: "Position 0-100%" },
+  }},
+
+  // ── HVAC clusters ──
+  512: { name: "Pump Config & Control", attrs: {
+    0: { n: "max_pressure", h: "Max pressure (kPa*10)" },
+    1: { n: "max_speed", h: "Max speed (RPM)" },
+    2: { n: "max_flow", h: "Max flow (m\u00B3/h * 10)" },
+    3: { n: "min_const_pressure", h: "Min constant pressure" },
+    4: { n: "max_const_pressure", h: "Max constant pressure" },
+    5: { n: "min_comp_pressure", h: "Min compensated pressure" },
+    6: { n: "max_comp_pressure", h: "Max compensated pressure" },
+    7: { n: "min_const_speed", h: "Min constant speed (RPM)" },
+    8: { n: "max_const_speed", h: "Max constant speed (RPM)" },
+    9: { n: "min_const_flow", h: "Min constant flow" },
+    10: { n: "max_const_flow", h: "Max constant flow" },
+    11: { n: "min_const_temp", h: "Min constant temp (\u00B0C*100)" },
+    12: { n: "max_const_temp", h: "Max constant temp (\u00B0C*100)" },
+    16: { n: "pump_status", h: "Pump status bitmap" },
+    17: { n: "effective_operation_mode", h: "Effective operation mode" },
+    18: { n: "effective_control_mode", h: "Effective control mode" },
+    19: { n: "capacity", h: "Current capacity (m\u00B3/h * 10)" },
+    20: { n: "speed", h: "Current speed (RPM)" },
+    32: { n: "operation_mode", h: "0=Normal, 1=Min, 2=Max, 3=Local" },
+    33: { n: "control_mode", h: "0=ConstantSpeed, 1=ConstantPressure, 2=ProportionalPressure, 3=ConstantFlow, 5=ConstantTemp, 7=Automatic" },
+  }},
+  513: { name: "Thermostat", attrs: {
+    0: { n: "local_temperature", h: "Local temp (0.01\u00B0C)" },
+    1: { n: "outdoor_temperature", h: "Outdoor temp (0.01\u00B0C)" },
+    2: { n: "occupancy", h: "0=Unoccupied, 1=Occupied" },
+    3: { n: "abs_min_heat_setpoint_limit", h: "Abs min heating setpoint" },
+    4: { n: "abs_max_heat_setpoint_limit", h: "Abs max heating setpoint" },
+    5: { n: "abs_min_cool_setpoint_limit", h: "Abs min cooling setpoint" },
+    6: { n: "abs_max_cool_setpoint_limit", h: "Abs max cooling setpoint" },
+    7: { n: "pi_cooling_demand", h: "PI cooling demand (0-100%)" },
+    8: { n: "pi_heating_demand", h: "PI heating demand (0-100%)" },
+    9: { n: "hvac_system_type_config", h: "HVAC system type config" },
+    16: { n: "local_temperature_calibration", h: "Local temp calibration (0.1\u00B0C, -2.5 to +2.5)" },
+    17: { n: "occupied_cooling_setpoint", h: "Cooling setpoint (0.01\u00B0C)" },
+    18: { n: "occupied_heating_setpoint", h: "Heating setpoint (0.01\u00B0C)" },
+    19: { n: "unoccupied_cooling_setpoint", h: "Unoccupied cooling setpoint" },
+    20: { n: "unoccupied_heating_setpoint", h: "Unoccupied heating setpoint" },
+    21: { n: "min_heat_setpoint_limit", h: "Min heating setpoint limit" },
+    22: { n: "max_heat_setpoint_limit", h: "Max heating setpoint limit" },
+    23: { n: "min_cool_setpoint_limit", h: "Min cooling setpoint limit" },
+    24: { n: "max_cool_setpoint_limit", h: "Max cooling setpoint limit" },
+    25: { n: "min_setpoint_dead_band", h: "Min setpoint dead band (0.1\u00B0C)" },
+    27: { n: "control_sequence_of_operation", h: "0=Cooling, 1=CoolingWithReheat, 2=Heating, 3=HeatingWithReheat, 4=CoolingAndHeating, 5=CoolingAndHeatingWithReheat" },
+    28: { n: "system_mode", h: "0=Off, 1=Auto, 3=Cool, 4=Heat, 5=EmergencyHeat, 6=Precooling, 7=FanOnly, 8=Dry, 9=Sleep" },
+    30: { n: "running_mode", h: "Running mode" },
+    41: { n: "running_state", h: "Running state bitmap" },
+    48: { n: "setpoint_change_source", h: "Setpoint change source" },
+    49: { n: "setpoint_change_amount", h: "Setpoint change amount (0.01\u00B0C)" },
+    50: { n: "setpoint_change_source_timestamp", h: "Setpoint change timestamp" },
+    52: { n: "occupied_setback", h: "Occupied setback (0.1\u00B0C)" },
+    56: { n: "emergency_heat_delta", h: "Emergency heat delta (0.01\u00B0C)" },
+    64: { n: "ac_type", h: "AC type enum" },
+    65: { n: "ac_capacity", h: "AC capacity (BTU/h)" },
+    66: { n: "ac_refrigerant_type", h: "AC refrigerant type" },
+    67: { n: "ac_compressor_type", h: "AC compressor type" },
+    68: { n: "ac_error_code", h: "AC error code bitmap" },
+    69: { n: "ac_louver_position", h: "1=FullyClosed, 2=Fully open, 3=Quarter, 4=Half, 5=ThreeQuarters" },
+    70: { n: "ac_coil_temperature", h: "AC coil temp (0.01\u00B0C)" },
+    71: { n: "ac_capacity_format", h: "AC capacity format" },
+  }},
+  514: { name: "Fan Control", attrs: {
+    0: { n: "fan_mode", h: "0=Off, 1=Low, 2=Medium, 3=High, 4=On, 5=Auto, 6=Smart" },
+    1: { n: "fan_mode_sequence", h: "0=Low/Med/High, 1=Low/High, 2=Low/Med/High/Auto, 3=Low/High/Auto, 4=On/Auto" },
+  }},
+  515: { name: "Dehumidification Control", attrs: {
+    0: { n: "relative_humidity", h: "Relative humidity (0.01%)" },
+    1: { n: "dehumidification_cooling", h: "Dehumidification cooling (%)" },
+    16: { n: "rh_dehumidification_setpoint", h: "RH dehumidification setpoint (%)" },
+    17: { n: "relative_humidity_mode", h: "0=Measured locally, 1=Updated over network" },
+    18: { n: "dehumidification_lockout", h: "0=Not allowed, 1=Allowed" },
+    19: { n: "dehumidification_hysteresis", h: "Dehumidification hysteresis (%)" },
+    20: { n: "dehumidification_max_cool", h: "Max cool (%)" },
+    21: { n: "relative_humidity_display", h: "0=Not displayed, 1=Displayed" },
+  }},
+  516: { name: "Thermostat User Interface", attrs: {
+    0: { n: "temperature_display_mode", h: "0=\u00B0C, 1=\u00B0F" },
+    1: { n: "keypad_lockout", h: "0=NoLockout, 1=Level1, 2=Level2, 3=Level3, 4=Level4, 5=Level5" },
+    2: { n: "schedule_programming_visibility", h: "0=Enabled, 1=Disabled" },
+  }},
+
+  // ── Lighting clusters ──
   768: { name: "Color Control", attrs: {
     0: { n: "current_hue", h: "Hue (0-254)" },
     1: { n: "current_saturation", h: "Saturation (0-254)" },
+    2: { n: "remaining_time", h: "Remaining transition time (1/10 sec)" },
+    3: { n: "current_x", h: "CIE x chromaticity (0-65279 \u2192 0.0-1.0)" },
+    4: { n: "current_y", h: "CIE y chromaticity (0-65279 \u2192 0.0-1.0)" },
+    5: { n: "drift_compensation", h: "Drift compensation" },
+    6: { n: "compensation_text", h: "Compensation text" },
     7: { n: "color_temperature", h: "Color temp (mireds)" },
     8: { n: "color_mode", h: "0=HS, 1=XY, 2=CT" },
+    15: { n: "options", h: "Color options bitmap" },
+    16: { n: "enhanced_current_hue", h: "Enhanced hue (0-65535)" },
+    17: { n: "enhanced_color_mode", h: "0=HS, 1=XY, 2=CT, 3=EnhancedHS" },
+    18: { n: "color_loop_active", h: "0=Inactive, 1=Active" },
+    19: { n: "color_loop_direction", h: "0=Decrement, 1=Increment" },
+    20: { n: "color_loop_time", h: "Color loop time (sec)" },
+    21: { n: "color_loop_start_enhanced_hue", h: "Loop start enhanced hue" },
+    22: { n: "color_loop_stored_enhanced_hue", h: "Loop stored enhanced hue" },
+    16384: { n: "color_capabilities", h: "Color capabilities bitmap" },
+    16385: { n: "color_temp_physical_min_mireds", h: "Min color temp (mireds)" },
+    16386: { n: "color_temp_physical_max_mireds", h: "Max color temp (mireds)" },
+    16387: { n: "couple_color_temp_to_level_min_mireds", h: "Couple CT to level min mireds" },
+    16400: { n: "start_up_color_temperature_mireds", h: "Startup color temp (mireds)" },
   }},
-  1026: { name: "Temperature", attrs: {
-    0: { n: "measured_value", h: "Temp in 0.01\u00B0C" },
+  769: { name: "Ballast Configuration", attrs: {
+    0: { n: "physical_min_level", h: "Physical min level" },
+    1: { n: "physical_max_level", h: "Physical max level" },
+    16: { n: "min_level", h: "Min level" },
+    17: { n: "max_level", h: "Max level" },
+    20: { n: "intrinsic_ballast_factor", h: "Intrinsic ballast factor" },
+    21: { n: "ballast_factor_adjustment", h: "Ballast factor adjustment" },
+    32: { n: "lamp_quantity", h: "Number of lamps" },
+    48: { n: "lamp_type", h: "Lamp type string" },
+    49: { n: "lamp_manufacturer", h: "Lamp manufacturer" },
+    50: { n: "lamp_rated_hours", h: "Lamp rated hours" },
+    51: { n: "lamp_burn_hours", h: "Lamp burn hours" },
+    52: { n: "lamp_alarm_mode", h: "Lamp alarm mode" },
+    53: { n: "lamp_burn_hours_trip_point", h: "Lamp burn hours trip point" },
   }},
-  1029: { name: "Humidity", attrs: {
-    0: { n: "measured_value", h: "Humidity in 0.01%" },
+
+  // ── Measurement & Sensing clusters ──
+  1024: { name: "Illuminance Measurement", attrs: {
+    0: { n: "measured_value", h: "Illuminance: 10000*log10(lux)+1" },
+    1: { n: "min_measured_value", h: "Min measurable value" },
+    2: { n: "max_measured_value", h: "Max measurable value" },
+    3: { n: "tolerance", h: "Tolerance" },
+    4: { n: "light_sensor_type", h: "0=Photodiode, 1=CMOS, 64=Unknown" },
   }},
-  1030: { name: "Occupancy", attrs: {
+  1025: { name: "Illuminance Level Sensing", attrs: {
+    0: { n: "level_status", h: "0=On target, 1=Below target, 2=Above target" },
+    1: { n: "light_sensor_type", h: "0=Photodiode, 1=CMOS" },
+    16: { n: "illuminance_target_level", h: "Target illuminance level" },
+  }},
+  1026: { name: "Temperature Measurement", attrs: {
+    0: { n: "measured_value", h: "Temperature (0.01\u00B0C)" },
+    1: { n: "min_measured_value", h: "Min measurable temp (0.01\u00B0C)" },
+    2: { n: "max_measured_value", h: "Max measurable temp (0.01\u00B0C)" },
+    3: { n: "tolerance", h: "Tolerance (0.01\u00B0C)" },
+  }},
+  1027: { name: "Pressure Measurement", attrs: {
+    0: { n: "measured_value", h: "Pressure (kPa*10 or hPa)" },
+    1: { n: "min_measured_value", h: "Min measurable pressure" },
+    2: { n: "max_measured_value", h: "Max measurable pressure" },
+    3: { n: "tolerance", h: "Tolerance" },
+    16: { n: "scaled_value", h: "Scaled value" },
+    17: { n: "min_scaled_value", h: "Min scaled value" },
+    18: { n: "max_scaled_value", h: "Max scaled value" },
+    19: { n: "scaled_tolerance", h: "Scaled tolerance" },
+    20: { n: "scale", h: "Scale factor (10^n)" },
+  }},
+  1028: { name: "Flow Measurement", attrs: {
+    0: { n: "measured_value", h: "Flow (m\u00B3/h * 10)" },
+    1: { n: "min_measured_value", h: "Min measurable flow" },
+    2: { n: "max_measured_value", h: "Max measurable flow" },
+    3: { n: "tolerance", h: "Tolerance" },
+  }},
+  1029: { name: "Relative Humidity", attrs: {
+    0: { n: "measured_value", h: "Humidity (0.01%)" },
+    1: { n: "min_measured_value", h: "Min measurable humidity" },
+    2: { n: "max_measured_value", h: "Max measurable humidity" },
+    3: { n: "tolerance", h: "Tolerance" },
+  }},
+  1030: { name: "Occupancy Sensing", attrs: {
     0: { n: "occupancy", h: "0=Unoccupied, 1=Occupied" },
-    1: { n: "occupancy_sensor_type", h: "0=PIR, 1=Ultrasonic, 2=Both" },
+    1: { n: "occupancy_sensor_type", h: "0=PIR, 1=Ultrasonic, 2=PIR+Ultrasonic, 3=PhysicalContact" },
+    2: { n: "occupancy_sensor_type_bitmap", h: "Sensor type bitmap" },
     16: { n: "pir_o_to_u_delay", h: "Occ\u2192Unocc delay (sec). Increase for longer hold." },
     17: { n: "pir_u_to_o_delay", h: "Unocc\u2192Occ delay (sec)" },
     18: { n: "pir_u_to_o_threshold", h: "Sensitivity. Lower = more sensitive." },
+    32: { n: "ultrasonic_o_to_u_delay", h: "Ultrasonic Occ\u2192Unocc delay (sec)" },
+    33: { n: "ultrasonic_u_to_o_delay", h: "Ultrasonic Unocc\u2192Occ delay (sec)" },
+    48: { n: "physical_contact_o_to_u_delay", h: "Physical contact Occ\u2192Unocc delay" },
+    49: { n: "physical_contact_u_to_o_delay", h: "Physical contact Unocc\u2192Occ delay" },
+    50: { n: "physical_contact_u_to_o_threshold", h: "Physical contact threshold" },
   }},
+  1032: { name: "Leaf Wetness", attrs: {
+    0: { n: "measured_value", h: "Leaf wetness (%)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1033: { name: "Soil Moisture", attrs: {
+    0: { n: "measured_value", h: "Soil moisture (%)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1034: { name: "pH Measurement", attrs: {
+    0: { n: "measured_value", h: "pH (0.01 units)" },
+    1: { n: "min_measured_value", h: "Min measurable pH" },
+    2: { n: "max_measured_value", h: "Max measurable pH" },
+  }},
+  1035: { name: "EC Measurement", attrs: {
+    0: { n: "measured_value", h: "Electrical conductivity (\u00B5S/cm)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1036: { name: "Wind Speed", attrs: {
+    0: { n: "measured_value", h: "Wind speed (0.01 m/s)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1040: { name: "Carbon Monoxide (CO)", attrs: {
+    0: { n: "measured_value", h: "CO concentration (ppm)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1037: { name: "Carbon Dioxide (CO\u2082)", attrs: {
+    0: { n: "measured_value", h: "CO\u2082 concentration (ppm)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1038: { name: "PM2.5 Measurement", attrs: {
+    0: { n: "measured_value", h: "PM2.5 (\u00B5g/m\u00B3)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+  1039: { name: "Formaldehyde (CH\u2082O)", attrs: {
+    0: { n: "measured_value", h: "Formaldehyde (ppm)" },
+    1: { n: "min_measured_value", h: "Min measurable" },
+    2: { n: "max_measured_value", h: "Max measurable" },
+  }},
+
+  // ── Security & Safety clusters ──
   1280: { name: "IAS Zone", attrs: {
     0: { n: "zone_state", h: "0=Not enrolled, 1=Enrolled" },
-    1: { n: "zone_type", h: "Zone type (motion, contact, fire...)" },
-    2: { n: "zone_status", h: "Zone status bitmap" },
+    1: { n: "zone_type", h: "0x000D=Motion, 0x0015=Contact, 0x0028=Fire, 0x002A=Water, 0x002B=CO, 0x002C=Personal Emergency, 0x002D=Vibration, 0x010F=Remote Control, 0x0115=Key Fob, 0x021D=Keypad, 0x0225=Standard Warning, 0x0226=Glass Break, 0x8XXX=Manufacturer" },
+    2: { n: "zone_status", h: "Bitmap: bit0=Alarm1, bit1=Alarm2, bit2=Tamper, bit3=Battery, bit4=SupervisionReports, bit5=RestoreReports, bit6=Trouble, bit7=AC(mains), bit8=Test, bit9=BatteryDefect" },
+    16: { n: "ias_cie_address", h: "IAS CIE IEEE address" },
+    17: { n: "zone_id", h: "Zone ID" },
+    18: { n: "num_zone_sensitivity_levels_supported", h: "Sensitivity levels" },
+    19: { n: "current_zone_sensitivity_level", h: "Current sensitivity" },
   }},
-  2820: { name: "Electrical", attrs: {
+  1281: { name: "IAS ACE", attrs: {
+  }},
+  1282: { name: "IAS Warning Devices", attrs: {
+    0: { n: "max_duration", h: "Max warning duration (sec)" },
+  }},
+
+  // ── Smart Energy / Metering ──
+  1792: { name: "Price", attrs: {
+    0: { n: "tier1_price_label", h: "Tier 1 price label" },
+  }},
+  1793: { name: "DRLC", attrs: {
+    0: { n: "utility_enrollment_group", h: "Utility enrollment group" },
+    1: { n: "start_randomize_minutes", h: "Start randomize (min)" },
+    2: { n: "stop_randomize_minutes", h: "Stop randomize (min)" },
+    3: { n: "device_class_value", h: "Device class" },
+  }},
+  1794: { name: "Metering", attrs: {
+    0: { n: "current_summation_delivered", h: "Total energy delivered (Wh)" },
+    1: { n: "current_summation_received", h: "Total energy received (Wh)" },
+    2: { n: "current_max_demand_delivered", h: "Max demand delivered" },
+    3: { n: "current_max_demand_received", h: "Max demand received" },
+    4: { n: "dft_summation", h: "DFT summation" },
+    5: { n: "daily_freeze_time", h: "Daily freeze time" },
+    6: { n: "power_factor", h: "Power factor (-100 to 100)" },
+    7: { n: "reading_snapshot_time", h: "Reading snapshot time" },
+    8: { n: "current_max_demand_delivered_time", h: "Max demand delivered time" },
+    9: { n: "current_max_demand_received_time", h: "Max demand received time" },
+    256: { n: "current_tier1_summation_delivered", h: "Tier 1 delivered" },
+    512: { n: "current_demand_delivered", h: "Current demand delivered" },
+    768: { n: "unit_of_measure", h: "0=kWh, 1=m\u00B3, 2=ft\u00B3, 3=ccf, 4=US gal, 5=IMP gal, 6=BTU, 7=L, 8=kPa, 128+=BCD versions" },
+    769: { n: "multiplier", h: "Multiplier" },
+    770: { n: "divisor", h: "Divisor" },
+    771: { n: "summation_formatting", h: "Summation formatting" },
+    772: { n: "demand_formatting", h: "Demand formatting" },
+    773: { n: "historical_consumption_formatting", h: "Historical formatting" },
+    774: { n: "metering_device_type", h: "0=Electric, 1=Gas, 2=Water, 3=Thermal, 4=Pressure, 5=Heat, 6=Cooling" },
+    775: { n: "site_id", h: "Site ID" },
+    776: { n: "meter_serial_number", h: "Meter serial number" },
+    1024: { n: "instantaneous_demand", h: "Instantaneous demand (W)" },
+    1025: { n: "current_day_consumption_delivered", h: "Today consumption delivered" },
+    1026: { n: "current_day_consumption_received", h: "Today consumption received" },
+    1027: { n: "previous_day_consumption_delivered", h: "Yesterday consumption delivered" },
+  }},
+  1795: { name: "Messaging", attrs: {
+  }},
+  1796: { name: "Tunneling", attrs: {
+  }},
+  1797: { name: "Prepayment", attrs: {
+    0: { n: "payment_control_config", h: "Payment control config" },
+  }},
+
+  // ── Protocol/Telecom clusters ──
+  2817: { name: "Meter Identification", attrs: {
+    0: { n: "company_name", h: "Company name" },
+    1: { n: "meter_type_id", h: "Meter type ID" },
+    4: { n: "data_quality_id", h: "Data quality ID" },
+    12: { n: "pod", h: "POD (Point of Delivery)" },
+    13: { n: "available_power", h: "Available power" },
+    14: { n: "power_threshold", h: "Power threshold" },
+  }},
+
+  // ── Electrical Measurement ──
+  2820: { name: "Electrical Measurement", attrs: {
+    0: { n: "measurement_type", h: "Measurement type bitmap" },
+    256: { n: "dc_voltage", h: "DC voltage (V)" },
+    257: { n: "dc_voltage_min", h: "DC voltage min" },
+    258: { n: "dc_voltage_max", h: "DC voltage max" },
+    259: { n: "dc_current", h: "DC current (A)" },
+    260: { n: "dc_current_min", h: "DC current min" },
+    261: { n: "dc_current_max", h: "DC current max" },
+    262: { n: "dc_power", h: "DC power (W)" },
+    263: { n: "dc_power_min", h: "DC power min" },
+    264: { n: "dc_power_max", h: "DC power max" },
+    512: { n: "ac_frequency", h: "AC frequency (Hz)" },
+    513: { n: "ac_frequency_min", h: "AC frequency min" },
+    514: { n: "ac_frequency_max", h: "AC frequency max" },
+    515: { n: "neutral_current", h: "Neutral current (A)" },
+    516: { n: "total_active_power", h: "Total active power (W)" },
+    517: { n: "total_reactive_power", h: "Total reactive power (VAr)" },
+    518: { n: "total_apparent_power", h: "Total apparent power (VA)" },
+    1024: { n: "ac_voltage_multiplier", h: "AC voltage multiplier" },
+    1025: { n: "ac_voltage_divisor", h: "AC voltage divisor" },
+    1026: { n: "ac_current_multiplier", h: "AC current multiplier" },
+    1027: { n: "ac_current_divisor", h: "AC current divisor" },
+    1028: { n: "ac_power_multiplier", h: "AC power multiplier" },
+    1029: { n: "ac_power_divisor", h: "AC power divisor" },
+    1281: { n: "ac_voltage_overload", h: "AC voltage overload" },
+    1282: { n: "ac_current_overload", h: "AC current overload" },
+    1283: { n: "ac_active_power_overload", h: "AC active power overload" },
     1285: { n: "rms_voltage", h: "RMS voltage (V)" },
+    1286: { n: "rms_voltage_min", h: "RMS voltage min" },
+    1287: { n: "rms_voltage_max", h: "RMS voltage max" },
     1288: { n: "rms_current", h: "RMS current (mA)" },
+    1289: { n: "rms_current_min", h: "RMS current min" },
+    1290: { n: "rms_current_max", h: "RMS current max" },
     1291: { n: "active_power", h: "Active power (W)" },
+    1292: { n: "active_power_min", h: "Active power min" },
+    1293: { n: "active_power_max", h: "Active power max" },
+    1294: { n: "reactive_power", h: "Reactive power (VAr)" },
+    1295: { n: "apparent_power", h: "Apparent power (VA)" },
+    1296: { n: "power_factor", h: "Power factor (-100 to 100)" },
+    1297: { n: "average_rms_voltage_measurement_period", h: "Avg RMS voltage measurement period" },
+    1299: { n: "average_rms_over_voltage_counter", h: "Avg RMS over-voltage counter" },
+    1300: { n: "average_rms_under_voltage_counter", h: "Avg RMS under-voltage counter" },
+    1301: { n: "rms_extreme_over_voltage_period", h: "RMS extreme over-voltage period" },
+    1302: { n: "rms_extreme_under_voltage_period", h: "RMS extreme under-voltage period" },
+    1303: { n: "rms_voltage_sag_period", h: "RMS voltage sag period" },
+    1304: { n: "rms_voltage_swell_period", h: "RMS voltage swell period" },
+    // Phase B
+    2309: { n: "rms_voltage_ph_b", h: "Phase B RMS voltage (V)" },
+    2312: { n: "rms_current_ph_b", h: "Phase B RMS current (mA)" },
+    2315: { n: "active_power_ph_b", h: "Phase B active power (W)" },
+    // Phase C
+    2565: { n: "rms_voltage_ph_c", h: "Phase C RMS voltage (V)" },
+    2568: { n: "rms_current_ph_c", h: "Phase C RMS current (mA)" },
+    2571: { n: "active_power_ph_c", h: "Phase C active power (W)" },
+  }},
+  2821: { name: "Diagnostics", attrs: {
+    0: { n: "number_of_resets", h: "Number of device resets" },
+    1: { n: "persistent_memory_writes", h: "Persistent memory writes" },
+    256: { n: "mac_rx_bcast", h: "MAC layer received broadcasts" },
+    257: { n: "mac_tx_bcast", h: "MAC layer transmitted broadcasts" },
+    258: { n: "mac_rx_ucast", h: "MAC layer received unicasts" },
+    259: { n: "mac_tx_ucast", h: "MAC layer transmitted unicasts" },
+    260: { n: "mac_tx_ucast_retry", h: "MAC TX unicast retries" },
+    261: { n: "mac_tx_ucast_fail", h: "MAC TX unicast failures" },
+    262: { n: "aps_rx_bcast", h: "APS layer received broadcasts" },
+    263: { n: "aps_tx_bcast", h: "APS layer transmitted broadcasts" },
+    264: { n: "aps_rx_ucast", h: "APS layer received unicasts" },
+    265: { n: "aps_tx_ucast_success", h: "APS TX unicast successes" },
+    266: { n: "aps_tx_ucast_retry", h: "APS TX unicast retries" },
+    267: { n: "aps_tx_ucast_fail", h: "APS TX unicast failures" },
+    268: { n: "route_disc_initiated", h: "Route discoveries initiated" },
+    269: { n: "neighbor_added", h: "Neighbors added" },
+    270: { n: "neighbor_removed", h: "Neighbors removed" },
+    271: { n: "neighbor_stale", h: "Stale neighbors" },
+    272: { n: "join_indication", h: "Join indications" },
+    273: { n: "child_moved", h: "Children moved" },
+    274: { n: "nwk_fc_failure", h: "NWK frame counter failures" },
+    275: { n: "aps_fc_failure", h: "APS frame counter failures" },
+    276: { n: "aps_unauthorized_key", h: "APS unauthorized key usage" },
+    277: { n: "nwk_decrypt_failures", h: "NWK decrypt failures" },
+    278: { n: "aps_decrypt_failures", h: "APS decrypt failures" },
+    279: { n: "packet_buffer_allocate_failures", h: "Packet buffer allocation failures" },
+    280: { n: "relayed_ucast", h: "Relayed unicasts" },
+    281: { n: "phy_to_mac_queue_limit_reached", h: "PHY→MAC queue limit reached" },
+    282: { n: "packet_validate_drop_count", h: "Packets dropped during validation" },
+    283: { n: "average_mac_retry_per_aps_message_sent", h: "Avg MAC retry per APS message" },
+    284: { n: "last_message_lqi", h: "Last message LQI" },
+    285: { n: "last_message_rssi", h: "Last message RSSI" },
+  }},
+
+  // ── Touchlink ──
+  4096: { name: "Touchlink Commissioning", attrs: {
+  }},
+
+  // ── Manufacturer-specific / Private clusters ──
+  64512: { name: "Xiaomi Aqara (0xFC00)", attrs: {
+    0: { n: "opple_cluster_attr_0", h: "Aqara opple attribute 0" },
+    1: { n: "opple_mode", h: "Aqara opple mode" },
+    2: { n: "opple_cluster_attr_2", h: "Aqara opple attribute 2" },
+    9: { n: "mode", h: "Aqara device mode" },
+    10: { n: "occupancy_timeout", h: "Aqara occupancy timeout" },
+    100: { n: "aqara_attr_100", h: "Aqara custom attribute 100" },
+    101: { n: "aqara_attr_101", h: "Aqara custom attribute 101" },
+    102: { n: "aqara_attr_102", h: "Aqara custom attribute 102" },
+    103: { n: "aqara_attr_103", h: "Aqara custom attribute 103" },
+    105: { n: "aqara_attr_105", h: "Aqara custom attribute 105" },
+    149: { n: "aqara_attr_149", h: "Aqara custom attribute 149 (energy)" },
+    150: { n: "aqara_attr_150", h: "Aqara custom attribute 150 (voltage)" },
+    152: { n: "aqara_attr_152", h: "Aqara custom attribute 152 (power)" },
+    247: { n: "aqara_attr_247", h: "Aqara custom attribute 247" },
+    268: { n: "aqara_attr_268", h: "Aqara startup on/off" },
+    329: { n: "aqara_attr_329", h: "Aqara custom attribute 329" },
+    512: { n: "aqara_attr_512", h: "Aqara custom 512" },
+  }},
+  64528: { name: "Xiaomi MiJia (0xFC10)", attrs: {
+  }},
+  64529: { name: "Xiaomi MiJia 2 (0xFC11)", attrs: {
+  }},
+  61184: { name: "Tuya (0xEF00)", attrs: {
+    0: { n: "tuya_dp_set", h: "Tuya DataPoint set" },
+    2: { n: "tuya_dp_report", h: "Tuya DataPoint report" },
+    3: { n: "tuya_mcu_version", h: "Tuya MCU version" },
+    4: { n: "tuya_mcu_sync_time", h: "Tuya MCU sync time" },
+    61440: { n: "tuya_cluster_revision", h: "Tuya cluster revision" },
+  }},
+  65281: { name: "Xiaomi Private (0xFF01)", attrs: {
+    1: { n: "battery_voltage_mv", h: "Battery voltage (mV)" },
+    3: { n: "device_temperature", h: "Device temperature (\u00B0C)" },
+    5: { n: "rssi_db", h: "RSSI (dBm)" },
+    6: { n: "lqi", h: "LQI value" },
+    8: { n: "key_1", h: "Key/event 1" },
+    10: { n: "key_2", h: "Key/event 2" },
+    100: { n: "temperature", h: "Temperature (\u00B0C * 100)" },
+    101: { n: "humidity", h: "Humidity (% * 100)" },
+    102: { n: "pressure", h: "Pressure (hPa * 100)" },
+    150: { n: "consumption_kwh", h: "Consumption (kWh)" },
+    152: { n: "power_w", h: "Power (W)" },
+  }},
+  65282: { name: "Xiaomi Private 2 (0xFF02)", attrs: {
+    1: { n: "battery_voltage_mv", h: "Battery voltage (mV)" },
+    3: { n: "device_temperature", h: "Device temperature (\u00B0C)" },
+    4: { n: "unk_1", h: "Unknown attr 4" },
+    5: { n: "rssi_db", h: "RSSI (dBm)" },
+    6: { n: "lqi", h: "LQI value" },
+  }},
+  64638: { name: "Ikea (0xFC7E)", attrs: {
+    0: { n: "ikea_attr_0", h: "Ikea custom attribute 0" },
+    1: { n: "ikea_attr_1", h: "Ikea custom attribute 1" },
+  }},
+  64636: { name: "Ikea Air Purifier (0xFC7C)", attrs: {
+    0: { n: "filter_run_time", h: "Filter run time (min)" },
+    1: { n: "replace_filter", h: "Replace filter flag" },
+    2: { n: "filter_life_level", h: "Filter life level (%)" },
+    6: { n: "pm25", h: "PM2.5 (\u00B5g/m\u00B3)" },
+    7: { n: "child_lock", h: "Child lock (0=Off, 1=On)" },
+    8: { n: "fan_mode", h: "Fan mode" },
+    9: { n: "fan_speed", h: "Fan speed" },
+    10: { n: "device_run_time", h: "Device run time (min)" },
+  }},
+  64642: { name: "Schneider Electric (0xFC82)", attrs: {
+  }},
+  64514: { name: "Legrand (0xFC02)", attrs: {
+  }},
+  64560: { name: "Philips Hue (0xFC30)", attrs: {
+  }},
+  64527: { name: "Osram (0xFC0F)", attrs: {
+  }},
+  64773: { name: "HEIMAN (0xFD05)", attrs: {
+  }},
+  64704: { name: "Sonoff (0xFCC0)", attrs: {
   }},
 };
 
@@ -3128,7 +3912,7 @@ function renderDevHelperClusters(ieee, clusterData) {
 
   for (let epIdx = 0; epIdx < endpoints.length; epIdx++) {
     const ep = endpoints[epIdx];
-    const epId = ep.endpoint_id ?? ep.id ?? 1;
+    const epId = _pid(ep.endpoint_id ?? ep.id) || 1;
     const inClusters = ep.clusters?.in || ep.in_clusters || ep.input_clusters || [];
     const outClusters = ep.clusters?.out || ep.out_clusters || ep.output_clusters || [];
     const allClusters = [
@@ -3338,7 +4122,7 @@ function _renderClusterContent(container, ieee, endpointId, clusterId, clusterTy
   }
 
   for (const attr of attributes) {
-    const attrId = attr.id ?? attr.attribute ?? 0;
+    const attrId = typeof (attr.id ?? attr.attribute) === "string" ? parseInt(attr.id ?? attr.attribute, 10) : Number(attr.id ?? attr.attribute ?? 0);
     const attrName = attr.name || zclCluster?.attrs?.[attrId]?.n || `attr_${attrId}`;
     const helpText = zclCluster?.attrs?.[attrId]?.h || "";
 
