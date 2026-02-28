@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.20] - 2026-02-28
+
+### Added
+- PDF Report Builder: multi-page PDF with screenshots, clipboard paste, file import, per-page notes, reorder/delete, A4 landscape output via jsPDF.
+
 ## [0.10.19] - 2026-02-28
 
 ### Fixed

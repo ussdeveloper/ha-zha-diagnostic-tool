@@ -66,6 +66,10 @@
         <div class="shortcut-icon"><i class="mdi mdi-access-point-network"></i></div>
         <span>Network Settings</span>
       </button>
+      <button class="desktop-shortcut" data-win="pdfreport-win">
+        <div class="shortcut-icon"><i class="mdi mdi-file-pdf-box"></i></div>
+        <span>PDF Report</span>
+      </button>
     </div>
 
     <!-- ===== FLOATING WINDOWS (hidden by default) ===== -->
@@ -500,6 +504,33 @@
       <div class="resize-handle"></div>
     </section>
 
+    <!-- PDF Report Builder -->
+    <section class="window" id="pdfreport-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-file-pdf-box win-icon" style="color:#ff4444"></i>
+        <span class="win-title">PDF Report Builder</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body pdfreport-body">
+        <div class="pdfreport-toolbar">
+          <button id="pdfreport-capture-btn" class="pdfreport-btn accent" title="Take a screenshot of the desktop and add to report"><i class="mdi mdi-camera"></i> Capture Screenshot</button>
+          <button id="pdfreport-paste-btn" class="pdfreport-btn" title="Paste image from clipboard"><i class="mdi mdi-clipboard-arrow-down"></i> Paste Image</button>
+          <button id="pdfreport-file-btn" class="pdfreport-btn" title="Add image from file"><i class="mdi mdi-image-plus"></i> Add Image</button>
+          <span class="pdfreport-sep"></span>
+          <button id="pdfreport-generate-btn" class="pdfreport-btn accent" title="Generate and download PDF"><i class="mdi mdi-download"></i> Generate PDF</button>
+          <button id="pdfreport-clear-btn" class="pdfreport-btn danger" title="Clear all pages"><i class="mdi mdi-delete"></i> Clear All</button>
+        </div>
+        <div id="pdfreport-pages" class="pdfreport-pages">
+          <div class="pdfreport-empty"><i class="mdi mdi-file-image-plus" style="font-size:48px;opacity:0.3"></i><br>No pages yet.<br>Capture a screenshot or paste an image to start.</div>
+        </div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
   </div>
 
   <!-- ===== ZHA HEALTH ALERT BANNER ===== -->
@@ -526,6 +557,7 @@
       <button class="taskbar-app" data-win="groups-win" title="ZHA Groups"><i class="mdi mdi-group"></i></button>
       <button class="taskbar-app" data-win="binding-win" title="Device Binding"><i class="mdi mdi-link-box-variant"></i></button>
       <button class="taskbar-app" data-win="netsettings-win" title="Network Settings"><i class="mdi mdi-access-point-network"></i></button>
+      <button class="taskbar-app" data-win="pdfreport-win" title="PDF Report Builder"><i class="mdi mdi-file-pdf-box"></i></button>
       <button class="taskbar-app" id="annotate-btn" title="Annotate / Draw Notes"><i class="mdi mdi-draw"></i></button>
       <button class="taskbar-app" id="refresh-btn" title="Refresh data" data-i18n-title="title.refresh"><i class="mdi mdi-refresh"></i></button>
     </div>
@@ -598,6 +630,7 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
   <script src="static/locale.js?v=0920"></script>
   <script src="static/app.js?v=0921"></script>
 </body>

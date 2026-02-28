@@ -1,5 +1,17 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.24] - 2026-02-28
+
+### Added
+- **PDF Report Builder** window: create multi-page PDF reports with screenshots and notes.
+  - Capture Screenshot: takes a snapshot of the current desktop (all visible windows/charts).
+  - Paste Image: paste from clipboard (Ctrl+V or button) to add images directly.
+  - Add Image: load images from files (supports multiple selection).
+  - Each page has a text note area for annotations/descriptions.
+  - Reorder pages (move up/down) and delete individual pages.
+  - Generate PDF: creates a formatted A4 landscape PDF with header, image, notes, and footer on each page.
+  - Uses jsPDF library (CDN) for PDF generation.
+
 ## [0.9.23] - 2026-02-28
 
 ### Fixed

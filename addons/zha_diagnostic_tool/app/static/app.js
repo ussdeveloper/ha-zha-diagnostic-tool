@@ -254,6 +254,7 @@ const WM = {
     "groups-win":       { w: 620, h: 480, x: 200, y: 60  },
     "binding-win":      { w: 600, h: 440, x: 240, y: 80  },
     "netsettings-win":  { w: 640, h: 540, x: 180, y: 40  },
+    "pdfreport-win":    { w: 780, h: 580, x: 140, y: 30  },
   },
 
   init() {
@@ -5329,6 +5330,351 @@ const Annotate = (() => {
   return { init, open, close };
 })();
 
+/* ========================================================
+   PDF REPORT BUILDER
+   ======================================================== */
+const PdfReport = (() => {
+  // Each page: { imageDataUrl: string, note: string }
+  let pages = [];
+
+  function _getContainer() { return $("pdfreport-pages"); }
+
+  /** Capture visible desktop (everything except the PDF window itself) as a data URL */
+  async function captureDesktop() {
+    const pdfWin = $("pdfreport-win");
+    // Temporarily hide PDF window so it's not in the screenshot
+    let wasOpen = false;
+    if (pdfWin && pdfWin.classList.contains("open")) {
+      wasOpen = true;
+      pdfWin.style.visibility = "hidden";
+    }
+    // Wait a frame for repaint
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // Use html2canvas-style approach: draw the desktop area onto an offscreen canvas
+    // Since we don't have html2canvas, we'll capture all visible canvases and create a composite
+    // Best approach: use the browser's own rendering — take a screenshot of the body via an offscreen canvas method
+    // Actually, simplest reliable method: capture the whole page element
+    const body = document.body;
+    const w = body.scrollWidth, h = body.scrollHeight;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Create a large canvas and draw key elements
+    const offscreen = document.createElement("canvas");
+    offscreen.width = Math.min(window.innerWidth * dpr, 3840);
+    offscreen.height = Math.min(window.innerHeight * dpr, 2160);
+    const ctx = offscreen.getContext("2d");
+    const sw = offscreen.width, sh = offscreen.height;
+
+    // Dark background
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, sw, sh);
+
+    // Draw all visible canvases (charts, netmap, etc.) at their positions
+    const allCanvases = document.querySelectorAll("canvas:not(#annotate-canvas)");
+    for (const cvs of allCanvases) {
+      if (cvs.offsetParent === null || cvs.width === 0 || cvs.height === 0) continue;
+      const rect = cvs.getBoundingClientRect();
+      try {
+        ctx.drawImage(cvs, rect.left * dpr, rect.top * dpr, rect.width * dpr, rect.height * dpr);
+      } catch { /* tainted canvas, skip */ }
+    }
+
+    // Draw window titlebars and text content as simple overlays
+    const windows = document.querySelectorAll(".window.open");
+    for (const win of windows) {
+      if (win.id === "pdfreport-win") continue;
+      const rect = win.getBoundingClientRect();
+      // Window background
+      ctx.fillStyle = "rgba(43,43,43,0.92)";
+      const rx = rect.left * dpr, ry = rect.top * dpr, rw = rect.width * dpr, rh = rect.height * dpr;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, 8 * dpr);
+      else ctx.rect(rx, ry, rw, rh);
+      ctx.fill();
+      // Titlebar
+      ctx.fillStyle = "rgba(30,30,30,0.95)";
+      ctx.fillRect(rx, ry, rw, 32 * dpr);
+      // Title text
+      const titleEl = win.querySelector(".win-title");
+      if (titleEl) {
+        ctx.fillStyle = "#ffffffdd";
+        ctx.font = `${12 * dpr}px Segoe UI`;
+        ctx.textAlign = "left";
+        ctx.fillText(titleEl.textContent, rx + 36 * dpr, ry + 20 * dpr);
+      }
+      // Border
+      ctx.strokeStyle = "rgba(96,205,255,0.2)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, 8 * dpr);
+      else ctx.rect(rx, ry, rw, rh);
+      ctx.stroke();
+    }
+
+    // Taskbar
+    ctx.fillStyle = "rgba(25,25,25,0.95)";
+    const tbH = 48 * dpr;
+    ctx.fillRect(0, sh - tbH, sw, tbH);
+
+    // Timestamp watermark
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.font = `${10 * dpr}px Segoe UI`;
+    ctx.textAlign = "right";
+    ctx.fillText(`ZHA Diagnostic · ${new Date().toLocaleString()}`, sw - 12 * dpr, sh - tbH - 8 * dpr);
+
+    const dataUrl = offscreen.toDataURL("image/png", 0.92);
+
+    // Restore PDF window
+    if (wasOpen && pdfWin) pdfWin.style.visibility = "";
+
+    return dataUrl;
+  }
+
+  function addPage(imageDataUrl, noteText) {
+    pages.push({ imageDataUrl, note: noteText || "" });
+    renderPages();
+  }
+
+  function removePage(index) {
+    pages.splice(index, 1);
+    renderPages();
+  }
+
+  function movePage(from, to) {
+    if (to < 0 || to >= pages.length) return;
+    const [item] = pages.splice(from, 1);
+    pages.splice(to, 0, item);
+    renderPages();
+  }
+
+  function renderPages() {
+    const host = _getContainer();
+    if (!host) return;
+    if (!pages.length) {
+      host.innerHTML = '<div class="pdfreport-empty"><i class="mdi mdi-file-image-plus" style="font-size:48px;opacity:0.3"></i><br>No pages yet.<br>Capture a screenshot or paste an image to start.</div>';
+      return;
+    }
+    host.innerHTML = "";
+    pages.forEach((page, i) => {
+      const card = document.createElement("div");
+      card.className = "pdfreport-page-card";
+
+      // Thumbnail
+      const thumb = document.createElement("div");
+      thumb.className = "pdfreport-thumb";
+      const img = document.createElement("img");
+      img.src = page.imageDataUrl;
+      img.alt = `Page ${i + 1}`;
+      thumb.appendChild(img);
+
+      // Controls bar
+      const controls = document.createElement("div");
+      controls.className = "pdfreport-page-controls";
+      controls.innerHTML = `
+        <span class="pdfreport-page-num">Page ${i + 1}</span>
+        <button class="pdfreport-page-btn" data-action="up" title="Move up" ${i === 0 ? "disabled" : ""}><i class="mdi mdi-arrow-up"></i></button>
+        <button class="pdfreport-page-btn" data-action="down" title="Move down" ${i === pages.length - 1 ? "disabled" : ""}><i class="mdi mdi-arrow-down"></i></button>
+        <button class="pdfreport-page-btn danger" data-action="delete" title="Remove page"><i class="mdi mdi-close"></i></button>
+      `;
+      controls.querySelectorAll("[data-action]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const a = btn.dataset.action;
+          if (a === "up") movePage(i, i - 1);
+          else if (a === "down") movePage(i, i + 1);
+          else if (a === "delete") removePage(i);
+        });
+      });
+
+      // Note textarea
+      const noteWrap = document.createElement("div");
+      noteWrap.className = "pdfreport-note-wrap";
+      const ta = document.createElement("textarea");
+      ta.className = "pdfreport-note";
+      ta.value = page.note;
+      ta.placeholder = "Add notes for this page...";
+      ta.addEventListener("input", () => { page.note = ta.value; });
+      noteWrap.appendChild(ta);
+
+      card.appendChild(controls);
+      card.appendChild(thumb);
+      card.appendChild(noteWrap);
+      host.appendChild(card);
+    });
+  }
+
+  async function generatePdf() {
+    if (!pages.length) { alert("Add at least one page first."); return; }
+    if (typeof window.jspdf === "undefined") { alert("jsPDF library not loaded. Check your internet connection."); return; }
+
+    const genBtn = $("pdfreport-generate-btn");
+    if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Generating...'; }
+
+    try {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const noteAreaH = 40; // mm reserved for notes at bottom
+
+      for (let i = 0; i < pages.length; i++) {
+        if (i > 0) pdf.addPage();
+
+        const page = pages[i];
+
+        // Header
+        pdf.setFillColor(26, 26, 46);
+        pdf.rect(0, 0, pageW, 12, "F");
+        pdf.setTextColor(96, 205, 255);
+        pdf.setFontSize(10);
+        pdf.text(`ZHA Diagnostic Report — Page ${i + 1} / ${pages.length}`, margin, 8);
+        pdf.setTextColor(180, 180, 180);
+        pdf.setFontSize(7);
+        pdf.text(new Date().toLocaleString(), pageW - margin, 8, { align: "right" });
+
+        // Screenshot image
+        const imgTop = 14;
+        const imgMaxH = pageH - imgTop - noteAreaH - 4;
+        const imgMaxW = pageW - margin * 2;
+
+        // Load image to get aspect ratio
+        const img = await _loadImage(page.imageDataUrl);
+        const aspect = img.naturalWidth / img.naturalHeight;
+        let imgW = imgMaxW;
+        let imgH = imgW / aspect;
+        if (imgH > imgMaxH) { imgH = imgMaxH; imgW = imgH * aspect; }
+        const imgX = margin + (imgMaxW - imgW) / 2;
+
+        pdf.addImage(page.imageDataUrl, "PNG", imgX, imgTop, imgW, imgH);
+
+        // Note section
+        if (page.note.trim()) {
+          const noteTop = imgTop + imgH + 4;
+          pdf.setDrawColor(96, 205, 255);
+          pdf.setLineWidth(0.3);
+          pdf.line(margin, noteTop, pageW - margin, noteTop);
+          pdf.setTextColor(220, 220, 220);
+          pdf.setFontSize(8);
+          pdf.setFont("helvetica", "bold");
+          pdf.text("Notes:", margin, noteTop + 5);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(8);
+          const lines = pdf.splitTextToSize(page.note, pageW - margin * 2);
+          pdf.text(lines.slice(0, 8), margin, noteTop + 10); // limit to ~8 lines
+        }
+
+        // Footer
+        pdf.setFillColor(26, 26, 46);
+        pdf.rect(0, pageH - 6, pageW, 6, "F");
+        pdf.setTextColor(150, 150, 150);
+        pdf.setFontSize(6);
+        pdf.text("Generated by ZHA Diagnostic Companion", margin, pageH - 2);
+      }
+
+      pdf.save(`zha_report_${Date.now()}.pdf`);
+    } catch (e) {
+      alert("PDF generation failed: " + e.message);
+    } finally {
+      if (genBtn) { genBtn.disabled = false; genBtn.innerHTML = '<i class="mdi mdi-download"></i> Generate PDF'; }
+    }
+  }
+
+  function _loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  function init() {
+    // Capture Screenshot button
+    $("pdfreport-capture-btn")?.addEventListener("click", async () => {
+      const btn = $("pdfreport-capture-btn");
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Capturing...'; }
+      try {
+        const dataUrl = await captureDesktop();
+        addPage(dataUrl, "");
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="mdi mdi-camera"></i> Capture Screenshot'; }
+      }
+    });
+
+    // Paste Image button — read from clipboard
+    $("pdfreport-paste-btn")?.addEventListener("click", async () => {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imgType = item.types.find(t => t.startsWith("image/"));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            const reader = new FileReader();
+            reader.onload = () => addPage(reader.result, "");
+            reader.readAsDataURL(blob);
+            return;
+          }
+        }
+        alert("No image found in clipboard. Copy an image first (e.g. PrintScreen).");
+      } catch {
+        alert("Cannot access clipboard. Try using Ctrl+V or allow clipboard permissions.");
+      }
+    });
+
+    // Also handle Ctrl+V paste when PDF window is focused
+    document.addEventListener("paste", (e) => {
+      const pdfWin = $("pdfreport-win");
+      if (!pdfWin || !pdfWin.classList.contains("open")) return;
+      // Check if the PDF window is the top focused window
+      const focused = document.querySelector(".window.open.focused");
+      if (focused?.id !== "pdfreport-win") return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          const reader = new FileReader();
+          reader.onload = () => addPage(reader.result, "");
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+    });
+
+    // Add Image from file
+    $("pdfreport-file-btn")?.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.multiple = true;
+      input.onchange = () => {
+        for (const file of (input.files || [])) {
+          const reader = new FileReader();
+          reader.onload = () => addPage(reader.result, "");
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    });
+
+    // Generate PDF
+    $("pdfreport-generate-btn")?.addEventListener("click", generatePdf);
+
+    // Clear All
+    $("pdfreport-clear-btn")?.addEventListener("click", () => {
+      if (pages.length && !confirm("Remove all pages from this report?")) return;
+      pages = [];
+      renderPages();
+    });
+
+    renderPages();
+  }
+
+  return { init, addPage, captureDesktop };
+})();
+
 /* ---------- Init ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   /* Boot window manager */
@@ -5419,6 +5765,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* Annotation overlay */
   Annotate.init();
+
+  /* PDF Report Builder */
+  PdfReport.init();
 
   /* ZHA Groups, Binding, Network Settings */
   initGroupsWindow();
