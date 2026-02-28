@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.17] - 2026-02-28
+
+### Added
+- Deep ZHA integration: Groups, Binding, Network Settings, Backups, Device Management, and Configuration API endpoints.
+- Three new UI windows: ZHA Groups, Device Binding, Network Settings — with full interactive controls.
+- Context knowledge base in `.github/context/` (5 reference documents).
+
 ## [0.10.16] - 2026-02-28
 
 ### Changed

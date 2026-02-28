@@ -4812,6 +4812,259 @@ function populateNotifySelect() {
   if (prev) sel.value = prev;
 }
 
+/* ========================================================
+   ZHA GROUPS WINDOW
+   ======================================================== */
+async function renderGroups() {
+  const el = $("groups-list");
+  if (!el) return;
+  el.innerHTML = `<div class="entity-row" style="justify-content:center;opacity:.5"><i class="mdi mdi-loading mdi-spin"></i> Loading…</div>`;
+  try {
+    const data = await api("api/zha/groups");
+    const groups = data.items || [];
+    if (!groups.length) {
+      el.innerHTML = `<div class="entity-row" style="opacity:.5">No groups found</div>`;
+      return;
+    }
+    el.innerHTML = groups.map(g => {
+      const members = (g.members || []).map(m =>
+        `<span class="badge">${escapeHtml(m.name || m.ieee || "?")}</span>`
+      ).join(" ");
+      return `<div class="card" style="padding:10px;margin-bottom:6px" data-group-id="${escapeHtml(String(g.group_id))}">` +
+        `<div style="display:flex;justify-content:space-between;align-items:center">` +
+          `<b>${escapeHtml(g.name || "Group " + g.group_id)}</b>` +
+          `<span class="entity-sub">ID: ${escapeHtml(String(g.group_id))}</span>` +
+        `</div>` +
+        `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${members || "<span class='entity-sub'>No members</span>"}</div>` +
+        `<div style="margin-top:6px;display:flex;gap:4px">` +
+          `<button class="groups-del-btn" data-gid="${escapeHtml(String(g.group_id))}"><i class="mdi mdi-delete"></i> Remove</button>` +
+        `</div>` +
+      `</div>`;
+    }).join("");
+
+    el.querySelectorAll(".groups-del-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const gid = btn.dataset.gid;
+        if (!confirm(`Remove group ${gid}?`)) return;
+        try {
+          await api("api/zha/groups/remove", { method: "POST", body: JSON.stringify({ group_ids: [Number(gid)] }) });
+          renderGroups();
+        } catch (e) { alert("Error: " + e.message); }
+      });
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="entity-row" style="color:var(--err)">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function initGroupsWindow() {
+  const refreshBtn = $("groups-refresh-btn");
+  const addBtn = $("groups-add-btn");
+  const createBtn = $("groups-create-btn");
+  const cancelBtn = $("groups-cancel-btn");
+  const dialog = $("groups-add-dialog");
+
+  if (refreshBtn) refreshBtn.addEventListener("click", renderGroups);
+
+  if (addBtn) addBtn.addEventListener("click", () => {
+    if (!dialog) return;
+    dialog.style.display = "";
+    // Populate member checkboxes from known devices
+    const membersEl = $("groups-new-members");
+    if (membersEl) {
+      const devs = state.zhaDevicesFull || [];
+      membersEl.innerHTML = devs.map(d =>
+        `<label style="display:block;padding:2px 0"><input type="checkbox" value="${escapeHtml(d.ieee)}" data-endpoint="1"> ${escapeHtml(d.name || d.ieee)}</label>`
+      ).join("");
+    }
+  });
+
+  if (cancelBtn) cancelBtn.addEventListener("click", () => {
+    if (dialog) dialog.style.display = "none";
+  });
+
+  if (createBtn) createBtn.addEventListener("click", async () => {
+    const nameInput = $("groups-new-name");
+    const name = nameInput ? nameInput.value.trim() : "";
+    if (!name) { alert("Group name is required"); return; }
+    const membersEl = $("groups-new-members");
+    const members = [];
+    if (membersEl) {
+      membersEl.querySelectorAll("input:checked").forEach(cb => {
+        members.push({ ieee: cb.value, endpoint_id: parseInt(cb.dataset.endpoint || "1", 10) });
+      });
+    }
+    try {
+      await api("api/zha/groups", { method: "POST", body: JSON.stringify({ group_name: name, members }) });
+      if (dialog) dialog.style.display = "none";
+      if (nameInput) nameInput.value = "";
+      renderGroups();
+    } catch (e) { alert("Error: " + e.message); }
+  });
+}
+
+/* ========================================================
+   DEVICE BINDING WINDOW
+   ======================================================== */
+function populateBindSourceSelect() {
+  const sel = $("bind-source-select");
+  if (!sel) return;
+  const devs = state.zhaDevicesFull || [];
+  sel.innerHTML = `<option value="">(Select device)</option>` +
+    devs.map(d =>
+      `<option value="${escapeHtml(d.ieee)}">${escapeHtml(d.name || d.ieee)} (${escapeHtml(d.ieee)})</option>`
+    ).join("");
+}
+
+function initBindingWindow() {
+  const findBtn = $("bind-find-btn");
+  if (findBtn) findBtn.addEventListener("click", async () => {
+    const sel = $("bind-source-select");
+    const targetsEl = $("bind-targets");
+    const ieee = sel ? sel.value : "";
+    if (!ieee) { alert("Select a source device first"); return; }
+    if (!targetsEl) return;
+    targetsEl.innerHTML = `<div class="entity-row" style="justify-content:center;opacity:.5"><i class="mdi mdi-loading mdi-spin"></i> Searching…</div>`;
+    try {
+      const data = await api("api/zha/bindable", { method: "POST", body: JSON.stringify({ ieee }) });
+      const items = data.items || [];
+      if (!items.length) {
+        targetsEl.innerHTML = `<div class="entity-row" style="opacity:.5">No bindable devices found</div>`;
+        return;
+      }
+      targetsEl.innerHTML = items.map(d =>
+        `<div class="entity-row" style="justify-content:space-between;align-items:center">` +
+          `<span>${escapeHtml(d.name || d.ieee)} <span class="entity-sub">${escapeHtml(d.ieee)}</span></span>` +
+          `<div style="display:flex;gap:4px">` +
+            `<button class="accent bind-do-btn" data-target="${escapeHtml(d.ieee)}"><i class="mdi mdi-link"></i> Bind</button>` +
+            `<button class="unbind-do-btn" data-target="${escapeHtml(d.ieee)}"><i class="mdi mdi-link-off"></i> Unbind</button>` +
+          `</div>` +
+        `</div>`
+      ).join("");
+
+      targetsEl.querySelectorAll(".bind-do-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await api("api/zha/bind", { method: "POST", body: JSON.stringify({ source_ieee: ieee, target_ieee: btn.dataset.target }) });
+            btn.innerHTML = `<i class="mdi mdi-check"></i> Bound`;
+            btn.disabled = true;
+          } catch (e) { alert("Bind error: " + e.message); }
+        });
+      });
+      targetsEl.querySelectorAll(".unbind-do-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await api("api/zha/unbind", { method: "POST", body: JSON.stringify({ source_ieee: ieee, target_ieee: btn.dataset.target }) });
+            btn.innerHTML = `<i class="mdi mdi-check"></i> Unbound`;
+            btn.disabled = true;
+          } catch (e) { alert("Unbind error: " + e.message); }
+        });
+      });
+    } catch (e) {
+      targetsEl.innerHTML = `<div class="entity-row" style="color:var(--err)">Error: ${escapeHtml(e.message)}</div>`;
+    }
+  });
+}
+
+/* ========================================================
+   NETWORK SETTINGS WINDOW
+   ======================================================== */
+async function renderNetworkSettings() {
+  const infoEl = $("netsettings-info");
+  if (!infoEl) return;
+  try {
+    const data = await api("api/zha/network/settings");
+    const settings = data.settings || data;
+    const rows = [
+      ["Radio Type", settings.radio_type || "-"],
+      ["Channel", settings.network_info?.channel ?? settings.channel ?? "-"],
+      ["PAN ID", settings.network_info?.pan_id ?? settings.pan_id ?? "-"],
+      ["Extended PAN ID", settings.network_info?.extended_pan_id ?? settings.extended_pan_id ?? "-"],
+      ["Coordinator IEEE", settings.network_info?.coordinator_ieee ?? settings.coordinator_ieee ?? "-"],
+      ["Network Key", settings.network_info?.network_key ? "••••••••" : "-"],
+      ["NWK Update ID", settings.network_info?.nwk_update_id ?? "-"],
+    ];
+    infoEl.innerHTML = rows.map(([label, val]) =>
+      `<div class="entity-row" style="justify-content:space-between">` +
+        `<span class="entity-sub">${escapeHtml(label)}</span>` +
+        `<b>${escapeHtml(String(val))}</b>` +
+      `</div>`
+    ).join("");
+  } catch (e) {
+    infoEl.innerHTML = `<div class="entity-row" style="color:var(--err)">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function renderBackupsList() {
+  const el = $("netsettings-backups-list");
+  if (!el) return;
+  try {
+    const data = await api("api/zha/backups");
+    const items = data.items || [];
+    if (!items.length) {
+      el.innerHTML = `<div class="entity-sub">No backups</div>`;
+      return;
+    }
+    el.innerHTML = items.map((b, i) =>
+      `<div class="entity-row" style="justify-content:space-between">` +
+        `<span>#${i + 1} ${escapeHtml(b.backup_time || b.name || "Backup")}</span>` +
+        `<span class="entity-sub">${escapeHtml(b.is_compatible !== undefined ? (b.is_compatible ? "Compatible" : "Incompatible") : "")}</span>` +
+      `</div>`
+    ).join("");
+  } catch (e) {
+    el.innerHTML = `<div class="entity-sub" style="color:var(--err)">Error loading backups</div>`;
+  }
+}
+
+function initNetworkSettingsWindow() {
+  const changeCh = $("netsettings-change-ch-btn");
+  if (changeCh) changeCh.addEventListener("click", async () => {
+    const sel = $("netsettings-channel");
+    const val = sel ? sel.value : "auto";
+    if (!confirm(`Change Zigbee channel to ${val}? This will temporarily disrupt your network.`)) return;
+    changeCh.disabled = true;
+    try {
+      await api("api/zha/network/channel", { method: "POST", body: JSON.stringify({ new_channel: val === "auto" ? "auto" : Number(val) }) });
+      alert("Channel change initiated. Network will reconfigure.");
+      renderNetworkSettings();
+    } catch (e) { alert("Error: " + e.message); }
+    finally { changeCh.disabled = false; }
+  });
+
+  const backupBtn = $("netsettings-backup-btn");
+  if (backupBtn) backupBtn.addEventListener("click", async () => {
+    backupBtn.disabled = true;
+    try {
+      await api("api/zha/backups", { method: "POST" });
+      alert("Backup created successfully.");
+      renderBackupsList();
+    } catch (e) { alert("Error: " + e.message); }
+    finally { backupBtn.disabled = false; }
+  });
+
+  const permitBtn = $("netsettings-permit-btn");
+  if (permitBtn) permitBtn.addEventListener("click", async () => {
+    permitBtn.disabled = true;
+    try {
+      await api("api/zha/permit", { method: "POST", body: JSON.stringify({ duration: 60 }) });
+      permitBtn.innerHTML = `<i class="mdi mdi-check"></i> Joining enabled (60s)`;
+      setTimeout(() => {
+        permitBtn.innerHTML = `<i class="mdi mdi-plus-network"></i> Permit Join (60s)`;
+        permitBtn.disabled = false;
+      }, 60000);
+    } catch (e) {
+      alert("Error: " + e.message);
+      permitBtn.disabled = false;
+    }
+  });
+
+  const refreshBtn = $("netsettings-refresh-btn");
+  if (refreshBtn) refreshBtn.addEventListener("click", () => {
+    renderNetworkSettings();
+    renderBackupsList();
+  });
+}
+
 /* ---------- Main data load ---------- */
 async function load() {
   if (state.loading) return;
@@ -4867,6 +5120,7 @@ async function load() {
     renderZigbeeLogs();
     renderZhaHealth();
     populateNotifySelect();
+    populateBindSourceSelect();
 
     if (d.runtime?.last_error) {
       setStatus(`Error: ${d.runtime.last_error}`, true);
@@ -5214,6 +5468,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* Annotation overlay */
   Annotate.init();
+
+  /* ZHA Groups, Binding, Network Settings */
+  initGroupsWindow();
+  initBindingWindow();
+  initNetworkSettingsWindow();
 
   /* Desktop icon drag & drop */
   initDesktopIconDrag();

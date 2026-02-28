@@ -1,5 +1,15 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.21] - 2026-02-28
+
+### Added
+- **Deep ZHA integration**: 16 new backend API endpoints covering Groups, Device Binding, Network Settings, Backups, Device Management (permit join, reconfigure, remove), and ZHA Configuration.
+- **ZHA Groups window**: view, create, and delete Zigbee groups with member management.
+- **Device Binding window**: find bindable devices, bind/unbind device pairs.
+- **Network Settings window**: view radio/channel/PAN info, change channel, create/list backups, permit join toggle.
+- **Context knowledge base**: `.github/context/` with ZHA WS API reference, HA Core API reference, Supervisor add-on API, ZCL data model, and integration gap analysis.
+- **Backend extras fetch**: automatic fetch of groups, network settings, configuration, and area registry on each poll cycle.
+
 ## [0.9.20] - 2026-02-28
 
 ### Changed

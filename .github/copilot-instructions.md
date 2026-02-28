@@ -63,3 +63,14 @@ addons/zha_diagnostic_tool/
 - `max_delay_samples` (default: 300)
 - `mirror_cooldown_ms` (default: 1200)
 - `grafana_theme` (default: "vscode-dark")
+
+## Context Knowledge Base
+
+Detailed API references and gap analysis are stored in `.github/context/`:
+- **`zha-websocket-api.md`** — Complete ZHA WS command reference (27+ commands with params/returns)
+- **`ha-core-api.md`** — HA Core WebSocket + REST API reference
+- **`supervisor-addon-api.md`** — Supervisor add-on auth, proxy URLs, config flags
+- **`zcl-data-model.md`** — Zigbee Cluster Library: device hierarchy, clusters, device types
+- **`current-integration-gaps.md`** — Gap analysis: what app.py implements vs what's available
+
+**Always read these files when working on ZHA integration features.**

@@ -90,6 +90,17 @@ class DiagnosticRuntime:
         # Unavailable device details for popup
         self.unavailable_devices: list[dict[str, Any]] = []
 
+        # ZHA groups cache
+        self.zha_groups: list[dict[str, Any]] = []
+        # ZHA network settings cache
+        self.zha_network_settings: dict[str, Any] = {}
+        # ZHA configuration cache
+        self.zha_configuration: dict[str, Any] = {}
+        # Area registry cache
+        self.area_registry: list[dict[str, Any]] = []
+        # ZHA network backups cache
+        self.zha_backups: list[dict[str, Any]] = []
+
         self.last_error: str | None = None
         self.last_success_utc: str | None = None
 
@@ -476,6 +487,25 @@ class DiagnosticRuntime:
                 ]
         except Exception as exc:  # noqa: BLE001
             LOGGER.debug("ZHA map fetch error: %s", exc)
+
+        # Fetch groups, network settings, areas, configuration (best-effort)
+        await self._fetch_zha_extras()
+
+    async def _fetch_zha_extras(self) -> None:
+        """Fetch ZHA groups, network settings, areas, and configuration (best-effort)."""
+        for cmd_type, attr_name in [
+            ("zha/groups", "zha_groups"),
+            ("zha/network/settings", "zha_network_settings"),
+            ("zha/configuration", "zha_configuration"),
+            ("config/area_registry/list", "area_registry"),
+        ]:
+            try:
+                resp = await self._ws_command({"type": cmd_type})
+                if resp.get("success"):
+                    result = resp.get("result", {} if "settings" in cmd_type or "configuration" in cmd_type else [])
+                    setattr(self, attr_name, result)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug("Fetch %s error: %s", cmd_type, exc)
 
     async def _fetch_battery_history(self) -> None:
         if not self.session or not self.battery_entities:
@@ -962,6 +992,10 @@ class DiagnosticRuntime:
             "zha_health_issues": self.zha_health_issues,
             "unavailable_devices": self.unavailable_devices,
             "device_entity_map": self.device_entity_map,
+            "zha_groups": self.zha_groups,
+            "zha_network_settings": self.zha_network_settings,
+            "zha_configuration": self.zha_configuration,
+            "area_registry": self.area_registry,
         }
 
     def _command_success_rate(self) -> float | None:
@@ -1473,6 +1507,305 @@ async def zha_command(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+# ---- ZHA Groups API ----
+
+
+async def get_zha_groups(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/groups"})
+        if resp.get("success"):
+            return web.json_response({"items": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def create_zha_group(request: web.Request) -> web.Response:
+    body = await request.json()
+    group_name = str(body.get("group_name", "")).strip()
+    members = body.get("members", [])
+    if not group_name:
+        return web.json_response({"error": "group_name is required"}, status=400)
+    cmd: dict[str, Any] = {"type": "zha/group/add", "group_name": group_name}
+    if members:
+        cmd["members"] = members
+    group_id = body.get("group_id")
+    if group_id is not None:
+        cmd["group_id"] = int(group_id)
+    try:
+        resp = await runtime._ws_command(cmd)
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}), status=201)
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def remove_zha_groups(request: web.Request) -> web.Response:
+    body = await request.json()
+    group_ids = body.get("group_ids", [])
+    if not group_ids:
+        return web.json_response({"error": "group_ids is required"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/group/remove", "group_ids": [int(g) for g in group_ids]})
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def add_group_members(request: web.Request) -> web.Response:
+    body = await request.json()
+    group_id = body.get("group_id")
+    members = body.get("members", [])
+    if group_id is None or not members:
+        return web.json_response({"error": "group_id and members are required"}, status=400)
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/group/members/add",
+            "group_id": int(group_id),
+            "members": members,
+        })
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def remove_group_members(request: web.Request) -> web.Response:
+    body = await request.json()
+    group_id = body.get("group_id")
+    members = body.get("members", [])
+    if group_id is None or not members:
+        return web.json_response({"error": "group_id and members are required"}, status=400)
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/group/members/remove",
+            "group_id": int(group_id),
+            "members": members,
+        })
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- ZHA Binding API ----
+
+
+async def get_bindable_devices(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/devices/bindable", "ieee": ieee})
+        if resp.get("success"):
+            return web.json_response({"items": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def bind_devices(request: web.Request) -> web.Response:
+    body = await request.json()
+    source_ieee = str(body.get("source_ieee", ""))
+    target_ieee = str(body.get("target_ieee", ""))
+    if not source_ieee or not target_ieee:
+        return web.json_response({"error": "source_ieee and target_ieee are required"}, status=400)
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/devices/bind",
+            "source_ieee": source_ieee,
+            "target_ieee": target_ieee,
+        })
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def unbind_devices(request: web.Request) -> web.Response:
+    body = await request.json()
+    source_ieee = str(body.get("source_ieee", ""))
+    target_ieee = str(body.get("target_ieee", ""))
+    if not source_ieee or not target_ieee:
+        return web.json_response({"error": "source_ieee and target_ieee are required"}, status=400)
+    try:
+        resp = await runtime._ws_command({
+            "type": "zha/devices/unbind",
+            "source_ieee": source_ieee,
+            "target_ieee": target_ieee,
+        })
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- ZHA Network Settings API ----
+
+
+async def get_network_settings(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/network/settings"})
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def change_channel(request: web.Request) -> web.Response:
+    body = await request.json()
+    new_channel = body.get("new_channel")
+    if new_channel is None:
+        return web.json_response({"error": "new_channel is required (11-26 or 'auto')"}, status=400)
+    if new_channel != "auto":
+        new_channel = int(new_channel)
+        if not 11 <= new_channel <= 26:
+            return web.json_response({"error": "Channel must be 11-26 or 'auto'"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/network/change_channel", "new_channel": new_channel}, timeout=60)
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- ZHA Backups API ----
+
+
+async def list_backups(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/network/backups/list"})
+        if resp.get("success"):
+            return web.json_response({"items": resp.get("result", [])})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def create_backup(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/network/backups/create"}, timeout=60)
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}), status=201)
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- ZHA Device Management API ----
+
+
+async def permit_join(request: web.Request) -> web.Response:
+    body = await request.json()
+    duration = int(body.get("duration", 60))
+    duration = max(0, min(254, duration))
+    cmd: dict[str, Any] = {"type": "zha/devices/permit", "duration": duration}
+    ieee = body.get("ieee")
+    if ieee:
+        cmd["ieee"] = str(ieee)
+    source_ieee = body.get("source_ieee")
+    if source_ieee:
+        cmd["source_ieee"] = str(source_ieee)
+    install_code = body.get("install_code")
+    if install_code:
+        cmd["install_code"] = str(install_code)
+    qr_code = body.get("qr_code")
+    if qr_code:
+        cmd["qr_code"] = str(qr_code)
+    try:
+        resp = await runtime._ws_command(cmd)
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def reconfigure_device(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/devices/reconfigure", "ieee": ieee}, timeout=60)
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def remove_device(request: web.Request) -> web.Response:
+    body = await request.json()
+    ieee = str(body.get("ieee", ""))
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+    if not runtime.session:
+        return web.json_response({"error": "No session"}, status=500)
+    try:
+        async with runtime.session.post(
+            f"{SUPERVISOR_API}/services/zha/remove",
+            json={"ieee": ieee},
+            timeout=ClientTimeout(total=30),
+        ) as response:
+            if response.status >= 300:
+                text = await response.text()
+                return web.json_response({"error": text[:200]}, status=response.status)
+            return web.json_response({"ok": True})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def get_zha_device(request: web.Request) -> web.Response:
+    ieee = request.match_info.get("ieee", "")
+    if not ieee:
+        return web.json_response({"error": "ieee is required"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/device", "ieee": ieee})
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+# ---- ZHA Configuration API ----
+
+
+async def get_zha_config(_: web.Request) -> web.Response:
+    try:
+        resp = await runtime._ws_command({"type": "zha/configuration"})
+        if resp.get("success"):
+            return web.json_response(resp.get("result", {}))
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def update_zha_config(request: web.Request) -> web.Response:
+    body = await request.json()
+    data = body.get("data")
+    if not data:
+        return web.json_response({"error": "data is required"}, status=400)
+    try:
+        resp = await runtime._ws_command({"type": "zha/configuration/update", "data": data})
+        if resp.get("success"):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": resp.get("error", {}).get("message", "Unknown")}, status=500)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 # ---- Keepalive CRUD ----
 
 
@@ -1611,6 +1944,36 @@ def create_app() -> web.Application:
     app.router.add_post("/api/zha-helper/write-attribute", zha_write_attribute)
     app.router.add_post("/api/zha-helper/command", zha_command)
     app.router.add_post("/api/zha-helper/commands", get_zha_cluster_commands)
+
+    # ZHA Groups
+    app.router.add_get("/api/zha/groups", get_zha_groups)
+    app.router.add_post("/api/zha/groups", create_zha_group)
+    app.router.add_post("/api/zha/groups/remove", remove_zha_groups)
+    app.router.add_post("/api/zha/groups/members/add", add_group_members)
+    app.router.add_post("/api/zha/groups/members/remove", remove_group_members)
+
+    # ZHA Binding
+    app.router.add_post("/api/zha/bindable", get_bindable_devices)
+    app.router.add_post("/api/zha/bind", bind_devices)
+    app.router.add_post("/api/zha/unbind", unbind_devices)
+
+    # ZHA Network
+    app.router.add_get("/api/zha/network/settings", get_network_settings)
+    app.router.add_post("/api/zha/network/channel", change_channel)
+
+    # ZHA Backups
+    app.router.add_get("/api/zha/backups", list_backups)
+    app.router.add_post("/api/zha/backups", create_backup)
+
+    # ZHA Device Management
+    app.router.add_post("/api/zha/permit", permit_join)
+    app.router.add_post("/api/zha/reconfigure", reconfigure_device)
+    app.router.add_post("/api/zha/remove", remove_device)
+    app.router.add_get("/api/zha/device/{ieee}", get_zha_device)
+
+    # ZHA Configuration
+    app.router.add_get("/api/zha/configuration", get_zha_config)
+    app.router.add_post("/api/zha/configuration", update_zha_config)
 
     app.router.add_get("/api/keepalive", get_keepalive_configs)
     app.router.add_post("/api/keepalive", create_keepalive)

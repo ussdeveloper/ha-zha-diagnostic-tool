@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=0920" />
+  <link rel="stylesheet" href="static/styles.css?v=0921" />
 </head>
 <body>
 
@@ -53,6 +53,18 @@
       <button class="desktop-shortcut" data-win="zigbeelogs-win">
         <div class="shortcut-icon"><i class="mdi mdi-alert-circle"></i></div>
         <span data-i18n="nav.zigbee_logs">Zigbee Logs</span>
+      </button>
+      <button class="desktop-shortcut" data-win="groups-win">
+        <div class="shortcut-icon"><i class="mdi mdi-group"></i></div>
+        <span>ZHA Groups</span>
+      </button>
+      <button class="desktop-shortcut" data-win="binding-win">
+        <div class="shortcut-icon"><i class="mdi mdi-link-box-variant"></i></div>
+        <span>Device Binding</span>
+      </button>
+      <button class="desktop-shortcut" data-win="netsettings-win">
+        <div class="shortcut-icon"><i class="mdi mdi-access-point-network"></i></div>
+        <span>Network Settings</span>
       </button>
     </div>
 
@@ -370,6 +382,106 @@
 
     <!-- Unavailable ZHA Devices -->
     <section class="window" id="unavail-devs-win">
+
+    <!-- ZHA Groups -->
+    <section class="window" id="groups-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-group win-icon"></i>
+        <span class="win-title">ZHA Groups</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body" style="overflow-y:auto">
+        <div class="toolbar">
+          <button id="groups-refresh-btn" class="accent" title="Refresh groups"><i class="mdi mdi-refresh"></i> Refresh</button>
+          <button id="groups-add-btn" title="Create group"><i class="mdi mdi-plus"></i> New Group</button>
+        </div>
+        <div id="groups-list" class="list"></div>
+        <!-- Add group dialog -->
+        <div id="groups-add-dialog" class="card" style="display:none;padding:12px;margin:8px">
+          <label>Group Name: <input id="groups-new-name" placeholder="Living Room Lights" /></label>
+          <div style="margin-top:8px"><b>Members:</b></div>
+          <div id="groups-new-members" class="list" style="max-height:120px;overflow-y:auto"></div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button class="accent" id="groups-create-btn"><i class="mdi mdi-check"></i> Create</button>
+            <button id="groups-cancel-btn"><i class="mdi mdi-close"></i> Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
+    <!-- Device Binding -->
+    <section class="window" id="binding-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-link-box-variant win-icon"></i>
+        <span class="win-title">Device Binding</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body" style="overflow-y:auto;padding:12px">
+        <div class="card" style="padding:12px;margin-bottom:8px">
+          <label>Source Device (IEEE):
+            <select id="bind-source-select" style="width:100%"></select>
+          </label>
+          <button id="bind-find-btn" class="accent" style="margin-top:8px"><i class="mdi mdi-magnify"></i> Find Bindable</button>
+        </div>
+        <div id="bind-targets" class="list"></div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
+    <!-- Network Settings -->
+    <section class="window" id="netsettings-win">
+      <div class="window-titlebar">
+        <i class="mdi mdi-access-point-network win-icon"></i>
+        <span class="win-title">Network Settings</span>
+        <div class="window-controls">
+          <span class="win-ctrl minimize"><i class="mdi mdi-minus"></i></span>
+          <span class="win-ctrl maximize"><i class="mdi mdi-checkbox-blank-outline"></i></span>
+          <span class="win-ctrl close"><i class="mdi mdi-close"></i></span>
+        </div>
+      </div>
+      <div class="window-body" style="overflow-y:auto;padding:12px">
+        <div id="netsettings-info" class="list"></div>
+        <div class="card" style="padding:12px;margin-top:8px">
+          <h4 style="margin:0 0 8px">Change Channel</h4>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="netsettings-channel">
+              <option value="auto">Auto (energy scan)</option>
+              <option value="11">11</option><option value="12">12</option><option value="13">13</option>
+              <option value="14">14</option><option value="15">15</option><option value="16">16</option>
+              <option value="17">17</option><option value="18">18</option><option value="19">19</option>
+              <option value="20">20</option><option value="21">21</option><option value="22">22</option>
+              <option value="23">23</option><option value="24">24</option><option value="25">25</option>
+              <option value="26">26</option>
+            </select>
+            <button id="netsettings-change-ch-btn" class="accent"><i class="mdi mdi-broadcast"></i> Change</button>
+          </div>
+        </div>
+        <div class="card" style="padding:12px;margin-top:8px">
+          <h4 style="margin:0 0 8px">Backups</h4>
+          <button id="netsettings-backup-btn" class="accent"><i class="mdi mdi-content-save"></i> Create Backup</button>
+          <div id="netsettings-backups-list" class="list" style="margin-top:8px"></div>
+        </div>
+        <div class="card" style="padding:12px;margin-top:8px">
+          <h4 style="margin:0 0 8px">Device Management</h4>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="netsettings-permit-btn" class="accent"><i class="mdi mdi-plus-network"></i> Permit Join (60s)</button>
+            <button id="netsettings-refresh-btn"><i class="mdi mdi-refresh"></i> Refresh</button>
+          </div>
+        </div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
+    <section class="window" id="unavail-devs-win" style="display:none">
       <div class="window-titlebar">
         <i class="mdi mdi-wifi-off win-icon" style="color:#ff6b6b"></i>
         <span class="win-title" data-i18n="win.unavail">Unavailable Zigbee Devices</span>
@@ -406,6 +518,9 @@
       <button class="taskbar-app" data-win="netmap-win" title="Network Map"><i class="mdi mdi-lan"></i></button>
       <button class="taskbar-app" data-win="devhelper-win" title="Device Helper"><i class="mdi mdi-wrench"></i></button>
       <button class="taskbar-app" data-win="zigbeelogs-win" title="Zigbee Logs"><i class="mdi mdi-alert-circle"></i></button>
+      <button class="taskbar-app" data-win="groups-win" title="ZHA Groups"><i class="mdi mdi-group"></i></button>
+      <button class="taskbar-app" data-win="binding-win" title="Device Binding"><i class="mdi mdi-link-box-variant"></i></button>
+      <button class="taskbar-app" data-win="netsettings-win" title="Network Settings"><i class="mdi mdi-access-point-network"></i></button>
       <button class="taskbar-app" id="annotate-btn" title="Annotate / Draw Notes"><i class="mdi mdi-draw"></i></button>
       <button class="taskbar-app" id="refresh-btn" title="Refresh data" data-i18n-title="title.refresh"><i class="mdi mdi-refresh"></i></button>
     </div>
@@ -479,6 +594,6 @@
   </div>
 
   <script src="static/locale.js?v=0920"></script>
-  <script src="static/app.js?v=0920"></script>
+  <script src="static/app.js?v=0921"></script>
 </body>
 </html>
