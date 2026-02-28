@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.21] - 2026-02-28
+
+### Fixed
+- HTML nesting bug: unclosed `<section>` caused Groups, Binding, Network Settings, PDF Report windows to be invisible.
+
+### Added
+- 25+ mock server API routes for complete test coverage.
+- 23 new Selenium tests (39 total): Groups, Binding, Network Settings, PDF Report, Network Map toolbar, Desktop Shortcuts.
+
 ## [0.10.20] - 2026-02-28
 
 ### Added

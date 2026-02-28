@@ -270,6 +270,224 @@ class TestNetworkMap:
         win = driver.find_element(By.ID, "netmap-win")
         assert "open" in win.get_attribute("class")
 
+    def test_netmap_canvas_present(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netmap-win")
+        time.sleep(1)
+        canvas = driver.find_element(By.ID, "netmap-canvas")
+        assert canvas.is_displayed()
+
+    def test_netmap_toolbar_buttons(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netmap-win")
+        time.sleep(1)
+        for btn_id in ["netmap-scan-btn", "netmap-bg-btn", "netmap-bg-clear-btn", "netmap-reset-btn"]:
+            btn = driver.find_element(By.ID, btn_id)
+            assert btn.is_displayed(), f"{btn_id} should be visible"
+
+    def test_netmap_scan_click(self, driver):
+        """Clicking Scan should not crash."""
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netmap-win")
+        time.sleep(1)
+        driver.find_element(By.ID, "netmap-scan-btn").click()
+        time.sleep(1)
+        # No crash = pass; canvas still present
+        assert driver.find_element(By.ID, "netmap-canvas").is_displayed()
+
+
+class TestGroupsWindow:
+    def test_groups_opens(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "groups-win")
+        time.sleep(1)
+        win = driver.find_element(By.ID, "groups-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_groups_toolbar(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "groups-win")
+        time.sleep(1)
+        refresh = driver.find_element(By.ID, "groups-refresh-btn")
+        add = driver.find_element(By.ID, "groups-add-btn")
+        assert refresh.is_displayed()
+        assert add.is_displayed()
+
+    def test_groups_add_dialog(self, driver):
+        """Clicking 'New Group' should show the add dialog."""
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "groups-win")
+        time.sleep(1)
+        btn = driver.find_element(By.ID, "groups-add-btn")
+        driver.execute_script("arguments[0].click()", btn)
+        time.sleep(0.5)
+        dialog = driver.find_element(By.ID, "groups-add-dialog")
+        assert dialog.is_displayed()
+
+    def test_groups_list_present(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "groups-win")
+        time.sleep(1)
+        lst = driver.find_element(By.ID, "groups-list")
+        assert lst is not None
+
+
+class TestBindingWindow:
+    def test_binding_opens(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "binding-win")
+        time.sleep(1)
+        win = driver.find_element(By.ID, "binding-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_binding_source_select(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "binding-win")
+        time.sleep(1)
+        sel = driver.find_element(By.ID, "bind-source-select")
+        assert sel.is_displayed()
+
+    def test_binding_find_btn(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "binding-win")
+        time.sleep(1)
+        btn = driver.find_element(By.ID, "bind-find-btn")
+        assert btn.is_displayed()
+
+
+class TestNetworkSettings:
+    def test_netsettings_opens(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netsettings-win")
+        time.sleep(1)
+        win = driver.find_element(By.ID, "netsettings-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_netsettings_info_loaded(self, driver):
+        """Network settings info should show radio type and channel."""
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netsettings-win")
+        time.sleep(2)
+        info = driver.find_element(By.ID, "netsettings-info")
+        text = info.text
+        assert "Radio Type" in text or "Channel" in text, f"Expected network info, got: {text}"
+
+    def test_netsettings_channel_select(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netsettings-win")
+        time.sleep(1)
+        sel = driver.find_element(By.ID, "netsettings-channel")
+        assert sel.is_displayed()
+
+    def test_netsettings_backup_btn(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netsettings-win")
+        time.sleep(1)
+        btn = driver.find_element(By.ID, "netsettings-backup-btn")
+        assert btn.is_displayed()
+
+    def test_netsettings_permit_btn(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "netsettings-win")
+        time.sleep(1)
+        btn = driver.find_element(By.ID, "netsettings-permit-btn")
+        assert btn.is_displayed()
+
+
+class TestPdfReport:
+    def test_pdfreport_opens(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "pdfreport-win")
+        time.sleep(1)
+        win = driver.find_element(By.ID, "pdfreport-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_pdfreport_toolbar_buttons(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "pdfreport-win")
+        time.sleep(1)
+        for btn_id in ["pdfreport-capture-btn", "pdfreport-paste-btn", "pdfreport-file-btn",
+                        "pdfreport-generate-btn", "pdfreport-clear-btn"]:
+            btn = driver.find_element(By.ID, btn_id)
+            assert btn.is_displayed(), f"{btn_id} should be visible"
+
+    def test_pdfreport_empty_state(self, driver):
+        """Should show empty state message when no pages added."""
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "pdfreport-win")
+        time.sleep(1)
+        pages = driver.find_element(By.ID, "pdfreport-pages")
+        assert "No pages yet" in pages.text
+
+    def test_pdfreport_capture_click(self, driver):
+        """Clicking Capture should add a page (screenshot of desktop)."""
+        driver.get(BASE)
+        time.sleep(2)
+        click_taskbar(driver, "pdfreport-win")
+        time.sleep(1)
+        btn = driver.find_element(By.ID, "pdfreport-capture-btn")
+        driver.execute_script("arguments[0].click()", btn)
+        time.sleep(3)
+        pages = driver.find_element(By.ID, "pdfreport-pages")
+        cards = pages.find_elements(By.CSS_SELECTOR, ".pdfreport-page-card")
+        assert len(cards) >= 1, "Capture should add a page card"
+
+
+class TestDesktopShortcuts:
+    def test_shortcut_opens_groups(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        shortcut = driver.find_element(By.CSS_SELECTOR, '.desktop-shortcut[data-win="groups-win"]')
+        driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('dblclick', {bubbles:true}))", shortcut)
+        time.sleep(1)
+        win = driver.find_element(By.ID, "groups-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_shortcut_opens_binding(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        shortcut = driver.find_element(By.CSS_SELECTOR, '.desktop-shortcut[data-win="binding-win"]')
+        driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('dblclick', {bubbles:true}))", shortcut)
+        time.sleep(1)
+        win = driver.find_element(By.ID, "binding-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_shortcut_opens_netsettings(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        shortcut = driver.find_element(By.CSS_SELECTOR, '.desktop-shortcut[data-win="netsettings-win"]')
+        driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('dblclick', {bubbles:true}))", shortcut)
+        time.sleep(1)
+        win = driver.find_element(By.ID, "netsettings-win")
+        assert "open" in win.get_attribute("class")
+
+    def test_shortcut_opens_pdfreport(self, driver):
+        driver.get(BASE)
+        time.sleep(2)
+        shortcut = driver.find_element(By.CSS_SELECTOR, '.desktop-shortcut[data-win="pdfreport-win"]')
+        driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('dblclick', {bubbles:true}))", shortcut)
+        time.sleep(1)
+        win = driver.find_element(By.ID, "pdfreport-win")
+        assert "open" in win.get_attribute("class")
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

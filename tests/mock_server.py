@@ -225,25 +225,93 @@ async def stub_post(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def zha_read_attribute(request: web.Request) -> web.Response:
+    return web.json_response({"value": 0})
+
+
+async def zha_groups_get(_: web.Request) -> web.Response:
+    return web.json_response({"groups": [
+        {"group_id": 1, "name": "Living Room", "members": [
+            {"ieee": "00:11:22:33:44:55:66:77", "endpoint_id": 1},
+        ]},
+    ]})
+
+
+async def zha_bindable(request: web.Request) -> web.Response:
+    return web.json_response({"devices": FAKE_ZHA_DEVICES[:2]})
+
+
+async def zha_network_settings(_: web.Request) -> web.Response:
+    return web.json_response({"settings": {
+        "radio_type": "znp",
+        "network_info": {
+            "channel": 15,
+            "pan_id": "0x1A62",
+            "extended_pan_id": "00:11:22:33:44:55:66:77",
+            "coordinator_ieee": "cc:dd:ee:ff:00:11:22:33",
+            "network_key": "hidden",
+            "nwk_update_id": 0,
+        },
+    }})
+
+
+async def zha_backups(_: web.Request) -> web.Response:
+    return web.json_response({"items": []})
+
+
+async def entity_history(request: web.Request) -> web.Response:
+    return web.json_response({"history": []})
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/static/{filename:.+}", static_file)
     app.router.add_get("/api/dashboard", dashboard)
+    # ZHA helper
     app.router.add_get("/api/zha-helper/devices", zha_devices)
     app.router.add_get("/api/zha-helper/clusters/{ieee}", zha_clusters)
     app.router.add_post("/api/zha-helper/attributes", zha_attributes)
     app.router.add_post("/api/zha-helper/commands", zha_commands)
+    app.router.add_post("/api/zha-helper/command", stub_post)
+    app.router.add_post("/api/zha-helper/read-attribute", zha_read_attribute)
+    app.router.add_post("/api/zha-helper/write-attribute", stub_post)
+    # Basic entities
     app.router.add_get("/api/zigbee-devices", stub_get)
     app.router.add_get("/api/switches", stub_get)
     app.router.add_get("/api/sensors", stub_get)
     app.router.add_get("/api/mirror-rules", stub_get)
+    app.router.add_post("/api/mirror-rules", stub_post)
+    app.router.add_delete("/api/mirror-rules/{rule_id}", stub_post)
     app.router.add_get("/api/sensor-rules", stub_get)
+    app.router.add_post("/api/sensor-rules", stub_post)
+    app.router.add_delete("/api/sensor-rules/{rule_id}", stub_post)
     app.router.add_get("/api/battery-alerts", stub_get)
+    app.router.add_post("/api/battery-alerts", stub_post)
+    app.router.add_delete("/api/battery-alerts/{alert_id}", stub_post)
     app.router.add_get("/api/zigbee-logs", stub_get)
     app.router.add_get("/api/keepalive-configs", stub_get)
+    app.router.add_get("/api/keepalive", stub_get)
+    app.router.add_post("/api/keepalive", stub_post)
     app.router.add_post("/api/refresh", stub_post)
     app.router.add_post("/api/switch-action", stub_post)
+    # ZHA groups
+    app.router.add_get("/api/zha/groups", zha_groups_get)
+    app.router.add_post("/api/zha/groups", stub_post)
+    app.router.add_post("/api/zha/groups/remove", stub_post)
+    # ZHA binding
+    app.router.add_post("/api/zha/bindable", zha_bindable)
+    app.router.add_post("/api/zha/bind", stub_post)
+    app.router.add_post("/api/zha/unbind", stub_post)
+    # Network settings
+    app.router.add_get("/api/zha/network/settings", zha_network_settings)
+    app.router.add_post("/api/zha/network/channel", stub_post)
+    app.router.add_get("/api/zha/backups", zha_backups)
+    app.router.add_post("/api/zha/backups", stub_post)
+    app.router.add_post("/api/zha/permit", stub_post)
+    app.router.add_post("/api/network-scan", stub_post)
+    # Entity history
+    app.router.add_get("/api/entity-history/{eid}", entity_history)
     return app
 
 

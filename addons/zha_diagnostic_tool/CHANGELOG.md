@@ -1,5 +1,14 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.25] - 2026-02-28
+
+### Fixed
+- **HTML nesting bug**: removed unclosed `<section>` for `unavail-devs-win` that caused Groups, Binding, Network Settings, and PDF Report windows to render as nested children — content was invisible.
+
+### Added
+- **Mock server**: 25+ new API stub routes (ZHA groups, binding, network settings, backups, permit join, entity history, keepalive, command, read/write attributes).
+- **Selenium tests**: 23 new tests across 7 test classes (NetworkMap toolbar/scan, Groups window/toolbar/dialog, Binding window/controls, Network Settings info/channel/backup/permit, PDF Report toolbar/empty-state/capture, Desktop Shortcuts dblclick).
+
 ## [0.9.24] - 2026-02-28
 
 ### Added
