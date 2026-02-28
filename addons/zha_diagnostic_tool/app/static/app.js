@@ -37,7 +37,7 @@ const state = {
   refreshTimer: null,
   loading: false,
   folders: JSON.parse(localStorage.getItem("zha_desktop_folders") || "[]"),
-  netMap: { zoom: 1, panX: 0, panY: 0, hoverNode: null },
+  netMap: { zoom: 1, panX: 0, panY: 0, hoverNode: null, dragNode: null, bgImage: null, bgOpacity: 0.35 },
   deviceWinCount: 0,
   devHelperDevices: [],
   devHelperSelected: null,
@@ -251,6 +251,9 @@ const WM = {
     "lights-win":       { w: 520, h: 440, x: 250, y: 115 },
     "zigbeelogs-win":   { w: 780, h: 520, x: 180, y: 40  },
     "unavail-devs-win": { w: 600, h: 400, x: 220, y: 100 },
+    "groups-win":       { w: 620, h: 480, x: 200, y: 60  },
+    "binding-win":      { w: 600, h: 440, x: 240, y: 80  },
+    "netsettings-win":  { w: 640, h: 540, x: 180, y: 40  },
   },
 
   init() {
@@ -387,6 +390,14 @@ const WM = {
     }
     if (id === "zigbeelogs-win")
       renderZigbeeLogs();
+    if (id === "groups-win")
+      renderGroups();
+    if (id === "netsettings-win") {
+      renderNetworkSettings();
+      renderBackupsList();
+    }
+    if (id === "binding-win")
+      populateBindSourceSelect();
   },
 
   _updateTaskbar() {
@@ -1544,30 +1555,37 @@ function renderNetworkMap() {
 
   ctx.clearRect(0, 0, w, h);
 
-  // Background dark
+  // Background
   ctx.fillStyle = "#0d1117";
   ctx.fillRect(0, 0, w, h);
-  // Subtle radial glow in center
-  const bg = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)*0.6);
-  bg.addColorStop(0, "rgba(0,60,120,0.18)");
-  bg.addColorStop(1, "transparent");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+
+  // Draw background image if loaded
+  if (nm.bgImage && nm.bgImage.complete && nm.bgImage.naturalWidth > 0) {
+    ctx.save();
+    ctx.globalAlpha = nm.bgOpacity ?? 0.35;
+    const iw = nm.bgImage.naturalWidth, ih = nm.bgImage.naturalHeight;
+    const scale = Math.min(w / iw, h / ih);
+    const dx = (w - iw * scale) / 2, dy = (h - ih * scale) / 2;
+    ctx.drawImage(nm.bgImage, dx, dy, iw * scale, ih * scale);
+    ctx.restore();
+  } else {
+    // Subtle radial glow in center
+    const bg = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)*0.6);
+    bg.addColorStop(0, "rgba(0,60,120,0.18)");
+    bg.addColorStop(1, "transparent");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+  }
 
   ctx.save();
   ctx.translate(w / 2 + nm.panX * dpr, h / 2 + nm.panY * dpr);
   ctx.scale(nm.zoom, nm.zoom);
 
-  // Use full ZHA device list — filter coordinator (drawn as HUB at origin) and dedup by IEEE
+  // Use full ZHA device list — filter coordinator and dedup by IEEE
   const _seenIeee = new Set();
   const devices = state.zhaDevicesFull
     .filter(d => !d.is_coordinator && d.device_type !== "Coordinator")
-    .filter(d => {
-      const k = d.ieee;
-      if (!k || _seenIeee.has(k)) return false;
-      _seenIeee.add(k);
-      return true;
-    });
+    .filter(d => { const k = d.ieee; if (!k || _seenIeee.has(k)) return false; _seenIeee.add(k); return true; });
 
   if (!devices.length) {
     ctx.restore();
@@ -1578,85 +1596,68 @@ function renderNetworkMap() {
     return;
   }
 
-  // Build nodes with stable layout positions (force-directed seed)
+  // Build / update nodes — restore saved positions from localStorage
   const _devIds = devices.map(d => d.ieee || "?").join(",");
   if (!nm.nodes || nm.nodesKey !== _devIds) {
     nm.nodesKey = _devIds;
+    const saved = _loadMapPositions();
     const count = devices.length;
 
-    // Scale radii to available canvas area (world-space pixels)
-    const canvasR = Math.min(w, h) * 0.45; // use 45% of smaller dimension for wider spread
-    const baseR = Math.max(canvasR * 0.4, 120 * dpr);
-
-    // Separate routers and end-devices for layered ring placement
+    // Separate routers and end-devices
     const routers = devices.filter(d => d.device_type === "Router" || (d.power_source_str || "").includes("Main"));
     const endDevices = devices.filter(d => !routers.includes(d));
 
-    // Build neighbor lookup: ieee → set of neighbor ieee addresses
-    const nbMap = new Map();
-    for (const d of devices) {
-      const nbs = (d.neighbors || []).map(nb => nb.ieee || nb.ieee_address).filter(Boolean);
-      if (nbs.length) nbMap.set(d.ieee, nbs);
-    }
-    const hasTopology = nbMap.size > 0;
-
-    // Simple seeded random for reproducible jitter
+    // Seeded random for initial placement
     let _seed = count * 7 + 31;
     const _srand = () => { _seed = (_seed * 16807 + 0) % 2147483647; return (_seed & 0xffff) / 0xffff; };
 
+    const canvasR = Math.min(w, h) * 0.45;
+    const baseR = Math.max(canvasR * 0.4, 120 * dpr);
+
     const nodes = [];
-    // Routers in inner ring
+    // Routers inner ring
     const rCount = Math.max(routers.length, 1);
     const rAngleStep = (2 * Math.PI) / rCount;
     const rRadius = baseR + rCount * 16 * dpr;
     for (let i = 0; i < routers.length; i++) {
-      const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.25;
-      const r = rRadius + (_srand() - 0.5) * 40 * dpr;
-      nodes.push({ dev: routers[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, vx: 0, vy: 0 });
+      const ieee = routers[i].ieee;
+      if (saved[ieee]) {
+        nodes.push({ dev: routers[i], x: saved[ieee].x, y: saved[ieee].y, pinned: true });
+      } else {
+        const angle = i * rAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.25;
+        const r = rRadius + (_srand() - 0.5) * 40 * dpr;
+        nodes.push({ dev: routers[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, pinned: false });
+      }
     }
-
-    // End-devices in outer ring — near parent router if topology available
-    const eCount = Math.max(endDevices.length, 1);
-    const eAngleStep = (2 * Math.PI) / eCount;
+    // End-devices outer ring
+    const eAngleStep = (2 * Math.PI) / Math.max(endDevices.length, 1);
     const eRadius = rRadius + baseR * 1.1;
     for (let i = 0; i < endDevices.length; i++) {
-      const dev = endDevices[i];
-      const devNbs = nbMap.get(dev.ieee) || [];
-      const parentNode = devNbs.length
-        ? nodes.find(n => routers.includes(n.dev) && devNbs.includes(n.dev.ieee))
-        : null;
-      let x, y;
-      if (parentNode && hasTopology) {
-        const pAngle = Math.atan2(parentNode.y, parentNode.x) + (_srand() - 0.5) * 0.8;
-        const pDist = Math.sqrt(parentNode.x ** 2 + parentNode.y ** 2) + (40 + _srand() * 50) * dpr;
-        x = Math.cos(pAngle) * pDist;
-        y = Math.sin(pAngle) * pDist;
+      const ieee = endDevices[i].ieee;
+      if (saved[ieee]) {
+        nodes.push({ dev: endDevices[i], x: saved[ieee].x, y: saved[ieee].y, pinned: true });
       } else {
         const angle = i * eAngleStep - Math.PI / 2 + (_srand() - 0.5) * 0.3;
         const r = eRadius + (_srand() - 0.5) * 40 * dpr;
-        x = Math.cos(angle) * r;
-        y = Math.sin(angle) * r;
+        nodes.push({ dev: endDevices[i], x: Math.cos(angle) * r, y: Math.sin(angle) * r, pinned: false });
       }
-      nodes.push({ dev, x, y, vx: 0, vy: 0 });
     }
     nm.nodes = nodes;
-    nm._hasTopology = hasTopology;
-    // Start animated force-directed settling
-    nm.animFrame = 0;
-    nm.settled = false;
-    _startForceAnimation();
+
+    // Build neighbor lookup
+    nm._nbMap = new Map();
+    for (const d of devices) {
+      const nbs = (d.neighbors || []).map(nb => nb.ieee || nb.ieee_address).filter(Boolean);
+      if (nbs.length) nm._nbMap.set(d.ieee, nbs);
+    }
+    nm._hasTopology = nm._nbMap.size > 0;
   }
 
-  // Draw edges — coordinator lives at world-space (0,0); dedup symmetric pairs
+  // ── Draw edges ──
   const _coordDev = state.zhaDevicesFull.find(d => d.is_coordinator || d.device_type === "Coordinator");
-  // Viewport bounds for culling (world-space, generous margin for labels)
-  const _vMinX = (-w/2 - nm.panX * dpr) / nm.zoom - 80*dpr;
-  const _vMaxX = ( w/2 - nm.panX * dpr) / nm.zoom + 80*dpr;
-  const _vMinY = (-h/2 - nm.panY * dpr) / nm.zoom - 80*dpr;
-  const _vMaxY = ( h/2 - nm.panY * dpr) / nm.zoom + 80*dpr;
-  // Edges fade when zoomed in — less noise, data in frame is more readable
   const _edgeAlpha = Math.max(0.18, Math.min(1.0, 1.0 / (nm.zoom * 0.7)));
   const _drawnEdges = new Set();
+
   for (const node of nm.nodes) {
     const lqi = _devLqi(node.dev);
     const lineColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
@@ -1674,20 +1675,28 @@ function renderNetworkMap() {
         const tx = isCoordTarget ? 0 : target.x;
         const ty = isCoordTarget ? 0 : target.y;
         const nbLqi = nb.lqi ?? 128;
-        const edgeColor = nbLqi > 180 ? `rgba(108,203,95,${(0.45 * _edgeAlpha).toFixed(2)})`
-          : nbLqi > 100 ? `rgba(252,225,0,${(0.35 * _edgeAlpha).toFixed(2)})`
-          : `rgba(255,107,107,${(0.28 * _edgeAlpha).toFixed(2)})`;
+        const edgeColor = nbLqi > 180 ? `rgba(108,203,95,${(0.55 * _edgeAlpha).toFixed(2)})`
+          : nbLqi > 100 ? `rgba(252,225,0,${(0.42 * _edgeAlpha).toFixed(2)})`
+          : `rgba(255,107,107,${(0.32 * _edgeAlpha).toFixed(2)})`;
         ctx.strokeStyle = edgeColor;
-        ctx.lineWidth = (nbLqi > 180 ? 1.8 : nbLqi > 100 ? 1.2 : 0.8) * dpr;
-        ctx.setLineDash(nbLqi > 180 ? [] : [4*dpr, 4*dpr]);
+        ctx.lineWidth = (nbLqi > 180 ? 2.2 : nbLqi > 100 ? 1.6 : 1.0) * dpr;
+        ctx.setLineDash(nbLqi > 180 ? [] : [5*dpr, 4*dpr]);
         ctx.beginPath();
         ctx.moveTo(node.x, node.y);
         ctx.lineTo(tx, ty);
         ctx.stroke();
         ctx.setLineDash([]);
+        // LQI label on edge midpoint
+        if (nm.zoom > 0.8) {
+          const mx = (node.x + tx) / 2, my = (node.y + ty) / 2;
+          ctx.fillStyle = edgeColor.replace(/[\d.]+\)$/, "0.9)");
+          ctx.font = `bold ${7.5 * dpr}px Segoe UI`;
+          ctx.textAlign = "center";
+          ctx.fillText(String(nbLqi), mx, my - 3 * dpr);
+        }
       }
     } else {
-      // Fallback: line to coordinator (device has no neighbor data yet)
+      // Fallback: line to coordinator
       ctx.globalAlpha = 0.35 * _edgeAlpha;
       ctx.strokeStyle = lineColor;
       ctx.lineWidth = (lqi > 180 ? 1.5 : 1) * dpr;
@@ -1697,19 +1706,12 @@ function renderNetworkMap() {
       ctx.lineTo(node.x, node.y);
       ctx.stroke();
       ctx.globalAlpha = 1;
-      if (lqi != null) {
-        ctx.fillStyle = lineColor;
-        ctx.font = `${8.5 * dpr}px Segoe UI`;
-        ctx.textAlign = "center";
-        ctx.fillText(String(lqi), node.x * 0.48, node.y * 0.48 - 4 * dpr);
-      }
     }
   }
-
   ctx.globalAlpha = 1;
   ctx.setLineDash([]);
 
-  // Coordinator node (center)
+  // ── Coordinator node (center) ──
   const coordGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 18*dpr);
   coordGrad.addColorStop(0, "#60cdff");
   coordGrad.addColorStop(1, "#0078d4");
@@ -1728,23 +1730,26 @@ function renderNetworkMap() {
   ctx.font = `${9 * dpr}px Segoe UI`;
   ctx.fillText(t("netmap.coord"), 0, -22 * dpr);
 
-  // Draw device nodes
+  // ── Draw device nodes ──
   for (const node of nm.nodes) {
     const dev = node.dev;
-    // Viewport culling — skip nodes fully outside visible area
-    if (node.x < _vMinX || node.x > _vMaxX || node.y < _vMinY || node.y > _vMaxY) continue;
     const lqi = _devLqi(dev);
     const nodeColor = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
     const isRouter = dev.device_type === "Router" || dev.power_source_str?.includes("Main");
-    const radius = isRouter ? 11 * dpr : 8 * dpr;
+    const radius = isRouter ? 12 * dpr : 9 * dpr;
 
-    // Node glow
-    if (lqi > 180) {
-      ctx.shadowColor = nodeColor;
-      ctx.shadowBlur = 6 * dpr;
+    // Pinned indicator (small dot)
+    if (node.pinned) {
+      ctx.fillStyle = "rgba(96,205,255,0.5)";
+      ctx.beginPath();
+      ctx.arc(node.x + radius + 4*dpr, node.y - radius - 4*dpr, 3*dpr, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    // Node fill
+    // Glow for good LQI
+    if (lqi > 180) { ctx.shadowColor = nodeColor; ctx.shadowBlur = 6 * dpr; }
+
+    // Node circle
     const nodeGrad = ctx.createRadialGradient(node.x - 2*dpr, node.y - 2*dpr, 0, node.x, node.y, radius);
     nodeGrad.addColorStop(0, nodeColor + "ff");
     nodeGrad.addColorStop(1, nodeColor + "88");
@@ -1763,14 +1768,14 @@ function renderNetworkMap() {
       ctx.stroke();
     }
 
-    // Device name — dark pill background so label is readable over any edge/color
-    const label = (dev.user_given_name || dev.name_by_user || dev.name || dev.ieee || "?").slice(0, 22);
-    const labelY = node.y + radius + 12 * dpr;
+    // Label pill
+    const label = (dev.user_given_name || dev.name_by_user || dev.name || dev.ieee || "?").slice(0, 24);
+    const labelY = node.y + radius + 13 * dpr;
     const _lPad = 3 * dpr;
     ctx.font = `${9.5 * dpr}px Segoe UI`;
     ctx.textAlign = "center";
     const _lW = ctx.measureText(label).width;
-    ctx.fillStyle = "rgba(13,17,23,0.72)";
+    ctx.fillStyle = "rgba(13,17,23,0.75)";
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(node.x - _lW/2 - _lPad, labelY - 10*dpr, _lW + _lPad*2, 13*dpr, 3*dpr);
     else ctx.rect(node.x - _lW/2 - _lPad, labelY - 10*dpr, _lW + _lPad*2, 13*dpr);
@@ -1778,7 +1783,7 @@ function renderNetworkMap() {
     ctx.fillStyle = "#ffffffde";
     ctx.fillText(label, node.x, labelY);
 
-    // LQI badge — pill background
+    // LQI badge
     if (lqi != null) {
       const lqiText = `LQI ${lqi}`;
       const lqiY = labelY + 11 * dpr;
@@ -1793,7 +1798,7 @@ function renderNetworkMap() {
       ctx.fillText(lqiText, node.x, lqiY);
     }
 
-    // At high zoom: show model id below label
+    // Model at high zoom
     if (nm.zoom > 2.5) {
       const model = (dev.model || dev.model_id || "").slice(0, 20);
       if (model) {
@@ -1810,20 +1815,33 @@ function renderNetworkMap() {
       }
     }
 
-    // Device type badge
+    // Router type badge
     if (isRouter) {
       ctx.fillStyle = "rgba(96,205,255,0.7)";
       ctx.font = `${7.5 * dpr}px Segoe UI`;
       ctx.fillText("R", node.x, node.y + 3 * dpr);
     }
 
-    // Hover highlight ring
-    if (nm.hoverNode === node) {
+    // Drag highlight — active drag node
+    if (nm.dragNode === node) {
       ctx.save();
       ctx.strokeStyle = "#60cdff";
       ctx.lineWidth = 2.5 * dpr;
       ctx.shadowColor = "#60cdff";
-      ctx.shadowBlur = 12 * dpr;
+      ctx.shadowBlur = 14 * dpr;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 7 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Hover highlight ring
+    if (nm.hoverNode === node && nm.dragNode !== node) {
+      ctx.save();
+      ctx.strokeStyle = "#60cdff";
+      ctx.lineWidth = 2 * dpr;
+      ctx.shadowColor = "#60cdff";
+      ctx.shadowBlur = 10 * dpr;
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius + 6 * dpr, 0, Math.PI * 2);
       ctx.stroke();
@@ -1831,8 +1849,8 @@ function renderNetworkMap() {
     }
   }
 
-  // Hover tooltip (drawn in world space, after all nodes)
-  if (nm.hoverNode) {
+  // Hover tooltip
+  if (nm.hoverNode && !nm.dragNode) {
     const hn = nm.hoverNode;
     const dev = hn.dev;
     const tipLines = [
@@ -1840,6 +1858,7 @@ function renderNetworkMap() {
       `${dev.manufacturer || "?"} · ${dev.model || "?"}`,
       `IEEE: ${dev.ieee || "?"}  NWK: ${dev.nwk || "?"}`,
       `LQI: ${_devLqi(dev)}  Type: ${dev.device_type || "?"}`,
+      hn.pinned ? "📌 Position saved — drag to move" : "Drag to position · dblclick for details",
     ];
     const tipFont = 9.5 * dpr;
     ctx.font = `${tipFont}px Segoe UI`;
@@ -1858,29 +1877,30 @@ function renderNetworkMap() {
     if (ctx.roundRect) ctx.roundRect(tipX, tipY, tipW, tipH, 6 * dpr);
     else ctx.rect(tipX, tipY, tipW, tipH);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#ffffffdd";
     ctx.textAlign = "left";
     for (let i = 0; i < tipLines.length; i++) {
-      ctx.fillStyle = i === 0 ? "#60cdff" : "#ffffffbb";
-      if (i === 0) ctx.font = `bold ${tipFont}px Segoe UI`;
-      else ctx.font = `${tipFont}px Segoe UI`;
+      ctx.fillStyle = i === 0 ? "#60cdff" : i === tipLines.length - 1 ? "rgba(96,205,255,0.6)" : "#ffffffbb";
+      ctx.font = i === 0 ? `bold ${tipFont}px Segoe UI` : `${tipFont}px Segoe UI`;
       ctx.fillText(tipLines[i], tipX + tipPad, tipY + tipPad + lineH * (i + 0.8));
     }
   }
 
   ctx.restore();
+
+  // ── HUD overlay (outside world transform) ──
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.font = `${9 * dpr}px Segoe UI`;
   ctx.textAlign = "left";
   const rCount = nm.nodes.filter(n => n.dev.device_type === "Router" || (n.dev.power_source_str || "").includes("Main")).length;
   const eCount = nm.nodes.length - rCount;
-  ctx.fillText(`${nm.nodes.length} devices (${rCount} routers, ${eCount} end-devices)`, 12 * dpr, 42 * dpr);
+  const pinnedCount = nm.nodes.filter(n => n.pinned).length;
+  ctx.fillText(`${nm.nodes.length} devices (${rCount} routers, ${eCount} end) · ${pinnedCount} pinned`, 12 * dpr, 42 * dpr);
   if (!nm._hasTopology) {
     ctx.fillStyle = "#fce100aa";
     ctx.fillText("⚠ No topology data — click Scan Network to read neighbor tables", 12 * dpr, 56 * dpr);
   }
 
-  // Legend (top-right corner)
+  // Legend
   const lx = w - 110 * dpr, ly = 16 * dpr;
   ctx.font = `${10 * dpr}px Segoe UI`;
   [["#6ccb5f", t("netmap.lqi_good")], ["#fce100", t("netmap.lqi_ok")], ["#ff6b6b", t("netmap.lqi_poor")]].forEach(([c, label], i) => {
@@ -1892,40 +1912,38 @@ function renderNetworkMap() {
     ctx.textAlign = "left";
     ctx.fillText(label, lx + 8 * dpr, ly + 4 * dpr + i * 16 * dpr);
   });
+  // Pinned legend
+  ctx.fillStyle = "rgba(96,205,255,0.5)";
+  ctx.beginPath();
+  ctx.arc(lx, ly + 3 * 16 * dpr, 3 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff99";
+  ctx.fillText("Pinned", lx + 8 * dpr, ly + 4 * dpr + 3 * 16 * dpr);
+
   ctx.textAlign = "center";
 
-  // ── Minimap (bottom-right overlay) ──────────────────
+  // ── Minimap ──
   if (nm.nodes && nm.nodes.length) {
-    const dprMm = window.devicePixelRatio || 1;
+    const dprMm = dpr;
     const mmW = Math.round(140 * dprMm), mmH = Math.round(90 * dprMm);
     const mmX = w - mmW - 8 * dprMm, mmY = h - mmH - 8 * dprMm;
-
-    // Bounding box of all nodes in world space
     let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
-    for (const n of nm.nodes) {
-      mnX = Math.min(mnX, n.x); mxX = Math.max(mxX, n.x);
-      mnY = Math.min(mnY, n.y); mxY = Math.max(mxY, n.y);
-    }
-    // Ensure coordinator (0,0) in bounds
+    for (const n of nm.nodes) { mnX = Math.min(mnX, n.x); mxX = Math.max(mxX, n.x); mnY = Math.min(mnY, n.y); mxY = Math.max(mxY, n.y); }
     mnX = Math.min(mnX, -20*dprMm); mxX = Math.max(mxX, 20*dprMm);
     mnY = Math.min(mnY, -20*dprMm); mxY = Math.max(mxY, 20*dprMm);
     const rangeX = mxX - mnX || 1, rangeY = mxY - mnY || 1;
     const mmPad = 8 * dprMm;
-    const scaleX = (mmW - 2*mmPad) / rangeX;
-    const scaleY = (mmH - 2*mmPad) / rangeY;
-    const mmScale = Math.min(scaleX, scaleY);
-    // Center of node bounding box maps to minimap center
+    const mmScale = Math.min((mmW - 2*mmPad) / rangeX, (mmH - 2*mmPad) / rangeY);
     const cxWorld = (mnX + mxX) / 2, cyWorld = (mnY + mxY) / 2;
     const mmCX = mmX + mmW / 2, mmCY = mmY + mmH / 2;
     const toMmX = (wx) => mmCX + (wx - cxWorld) * mmScale;
     const toMmY = (wy) => mmCY + (wy - cyWorld) * mmScale;
-
     ctx.save();
     ctx.globalAlpha = 0.88;
-    // Background
     ctx.fillStyle = "rgba(13,17,23,0.92)";
     ctx.strokeStyle = "rgba(96,205,255,0.25)";
     ctx.lineWidth = 1;
+    ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(mmX, mmY, mmW, mmH, 4 * dprMm);
     else ctx.rect(mmX, mmY, mmW, mmH);
     ctx.fill(); ctx.stroke();
@@ -1933,38 +1951,23 @@ function renderNetworkMap() {
     if (ctx.roundRect) ctx.roundRect(mmX, mmY, mmW, mmH, 4 * dprMm);
     else ctx.rect(mmX, mmY, mmW, mmH);
     ctx.clip();
-
-    // Edges
+    // Edges on minimap
     for (const n of nm.nodes) {
       for (const nb of (n.dev.neighbors || [])) {
         const nbIeee = nb.ieee || nb.ieee_address;
         if (!nbIeee) continue;
         const isCoordNb = _coordDev?.ieee === nbIeee;
-        const t = isCoordNb ? null : nm.nodes.find(x => x.dev.ieee === nbIeee && x !== n);
-        if (!t && !isCoordNb) continue;
-        const tX = isCoordNb ? 0 : t.x;
-        const tY = isCoordNb ? 0 : t.y;
+        const tgt = isCoordNb ? null : nm.nodes.find(x => x.dev.ieee === nbIeee && x !== n);
+        if (!tgt && !isCoordNb) continue;
         ctx.strokeStyle = "rgba(96,205,255,0.22)";
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(toMmX(n.x), toMmY(n.y));
-        ctx.lineTo(toMmX(tX), toMmY(tY));
+        ctx.lineTo(toMmX(isCoordNb ? 0 : tgt.x), toMmY(isCoordNb ? 0 : tgt.y));
         ctx.stroke();
       }
     }
-    // Fallback: line to coordinator when no neighbor data
-    const hasNeighbors = nm.nodes.some(n => (n.dev.neighbors || []).length > 0);
-    if (!hasNeighbors) {
-      for (const n of nm.nodes) {
-        ctx.strokeStyle = "rgba(96,205,255,0.12)";
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(toMmX(0), toMmY(0));
-        ctx.lineTo(toMmX(n.x), toMmY(n.y));
-        ctx.stroke();
-      }
-    }
-    // Nodes
+    // Nodes on minimap
     for (const n of nm.nodes) {
       const lqi = _devLqi(n.dev);
       ctx.fillStyle = lqi > 180 ? "#6ccb5f" : lqi > 100 ? "#fce100" : "#ff6b6b";
@@ -1972,72 +1975,45 @@ function renderNetworkMap() {
       ctx.arc(toMmX(n.x), toMmY(n.y), 2 * dprMm, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Coordinator
     ctx.fillStyle = "#60cdff";
     ctx.beginPath();
     ctx.arc(toMmX(0), toMmY(0), 3 * dprMm, 0, Math.PI * 2);
     ctx.fill();
-
     // Viewport rect
-    const dprV = window.devicePixelRatio || 1;
-    const vpWorldLeft  = (-w/2 - nm.panX * dprV) / nm.zoom;
-    const vpWorldRight = ( w/2 - nm.panX * dprV) / nm.zoom;
-    const vpWorldTop   = (-h/2 - nm.panY * dprV) / nm.zoom;
-    const vpWorldBot   = ( h/2 - nm.panY * dprV) / nm.zoom;
+    const vpWorldLeft  = (-w/2 - nm.panX * dpr) / nm.zoom;
+    const vpWorldRight = ( w/2 - nm.panX * dpr) / nm.zoom;
+    const vpWorldTop   = (-h/2 - nm.panY * dpr) / nm.zoom;
+    const vpWorldBot   = ( h/2 - nm.panY * dpr) / nm.zoom;
     ctx.strokeStyle = "rgba(96,205,255,0.7)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(
-      toMmX(vpWorldLeft), toMmY(vpWorldTop),
-      (vpWorldRight - vpWorldLeft) * mmScale,
-      (vpWorldBot - vpWorldTop) * mmScale
-    );
-
-    // Label
+    ctx.strokeRect(toMmX(vpWorldLeft), toMmY(vpWorldTop), (vpWorldRight - vpWorldLeft) * mmScale, (vpWorldBot - vpWorldTop) * mmScale);
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.font = `${8 * dprMm}px Segoe UI`;
     ctx.textAlign = "left";
     ctx.fillText(t("netmap.minimap"), mmX + 3*dprMm, mmY + 9*dprMm);
-
     ctx.restore();
   }
   ctx.textAlign = "center";
 }
 
-function _startForceAnimation() {
+/* ── Map position persistence ── */
+function _loadMapPositions() {
+  try { return JSON.parse(localStorage.getItem("zha_map_positions") || "{}"); }
+  catch { return {}; }
+}
+function _saveMapPositions() {
   const nm = state.netMap;
-  if (nm._animId) cancelAnimationFrame(nm._animId);
-  nm.animFrame = 0;
-  nm.settled = false;
-
-  function tick() {
-    if (!nm.nodes || nm.settled) return;
-    const dpr = window.devicePixelRatio || 1;
-    // Progressive damping: starts loose, tightens over time
-    const progress = Math.min(nm.animFrame / 120, 1);
-    const damping = 0.65 - progress * 0.3; // 0.65 → 0.35
-    // Run iterations per frame (more early, fewer late)
-    const iters = nm.animFrame < 40 ? 5 : nm.animFrame < 80 ? 3 : 2;
-    for (let i = 0; i < iters; i++) _forceStep(nm.nodes, dpr, damping);
-    nm.animFrame++;
-    renderNetworkMap();
-    // Check convergence: total velocity
-    let totalV = 0;
-    for (const n of nm.nodes) totalV += Math.abs(n.vx) + Math.abs(n.vy);
-    if (nm.animFrame > 300 || totalV < 0.2) {
-      nm.settled = true;
-      nm._animId = null;
-      renderNetworkMap();
-      return;
-    }
-    nm._animId = requestAnimationFrame(tick);
+  if (!nm.nodes) return;
+  const saved = _loadMapPositions();
+  for (const n of nm.nodes) {
+    if (n.pinned) saved[n.dev.ieee] = { x: n.x, y: n.y };
   }
-  nm._animId = requestAnimationFrame(tick);
+  localStorage.setItem("zha_map_positions", JSON.stringify(saved));
 }
 
 function _devLqi(dev) {
   if (dev.lqi != null) return dev.lqi;
   if (dev.link_quality != null) return dev.link_quality;
-  // Try from neighbors list
   if (dev.neighbors && dev.neighbors.length) {
     const lqis = dev.neighbors.map(n => n.lqi).filter(v => v != null);
     if (lqis.length) return Math.max(...lqis);
@@ -2045,95 +2021,12 @@ function _devLqi(dev) {
   return 128;
 }
 
-function _forceStep(nodes, dpr, damping) {
-  const n = nodes.length;
-  if (!n) return;
-  // Collision radius scales with node count — more nodes → more spacing needed
-  const idealDist = Math.max(110, 200 - n * 0.5) * dpr;
-  const repel = 8000 * dpr; // strong repulsion for readability
-  const attractK = 0.008;
-  const centerK = 0.0003; // very weak center gravity
-  if (damping == null) damping = 0.5;
-
-  for (const a of nodes) {
-    a.vx *= damping; a.vy *= damping;
-    // Very weak center gravity
-    a.vx -= a.x * centerK;
-    a.vy -= a.y * centerK;
-    // Repulsion between all pairs
-    for (const b of nodes) {
-      if (a === b) continue;
-      const dx = a.x - b.x, dy = a.y - b.y;
-      const d2 = dx * dx + dy * dy + 1;
-      const dist = Math.sqrt(d2);
-      const nx = dx / dist, ny = dy / dist;
-      // Coulomb-style repulsion — falls off with distance squared
-      a.vx += nx * repel / d2;
-      a.vy += ny * repel / d2;
-      // Hard collision boundary — strong push when overlapping idealDist
-      if (dist < idealDist) {
-        const overlap = idealDist - dist;
-        const push = overlap * 1.2; // strong push-apart
-        a.vx += nx * push;
-        a.vy += ny * push;
-      }
-      // Soft separation for label readability — weaker push in 1x-2x idealDist range
-      else if (dist < idealDist * 2) {
-        const softPush = (idealDist * 2 - dist) * 0.15;
-        a.vx += nx * softPush;
-        a.vy += ny * softPush;
-      }
-    }
-    // Attraction to neighbors (only if topology data exists)
-    const neighbors = a.dev.neighbors || [];
-    for (const nb of neighbors) {
-      const nbIeee = nb.ieee || nb.ieee_address;
-      if (!nbIeee) continue;
-      const target = nodes.find(t => t.dev.ieee === nbIeee && t !== a);
-      if (!target) continue;
-      const dx = target.x - a.x, dy = target.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy + 1);
-      // Spring — attract when far from ideal distance, repel when too close
-      if (dist > idealDist * 1.8) {
-        const strength = attractK * (dist - idealDist * 1.5);
-        a.vx += (dx / dist) * strength;
-        a.vy += (dy / dist) * strength;
-      }
-    }
-  }
-  const maxV = 25 * dpr;
-  for (const a of nodes) {
-    a.vx = Math.max(-maxV, Math.min(maxV, a.vx));
-    a.vy = Math.max(-maxV, Math.min(maxV, a.vy));
-    a.x += a.vx;
-    a.y += a.vy;
-  }
-}
-
 function initNetworkMap() {
   const canvas = $("netmap-canvas");
   if (!canvas) return;
   const nm = state.netMap;
 
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.12 : 0.88;
-    const rect = canvas.getBoundingClientRect();
-    // Mouse position relative to canvas center (CSS pixels)
-    const mx = e.clientX - rect.left - rect.width / 2;
-    const my = e.clientY - rect.top - rect.height / 2;
-    const oldZoom = nm.zoom;
-    nm.zoom = Math.max(0.2, Math.min(8, nm.zoom * factor));
-    const zRatio = nm.zoom / oldZoom;
-    // Keep the world point under the cursor stationary
-    nm.panX = mx * (1 - zRatio) + nm.panX * zRatio;
-    nm.panY = my * (1 - zRatio) + nm.panY * zRatio;
-    renderNetworkMap();
-  }, { passive: false });
-
-  let dragging = false, sx = 0, sy = 0, spx = 0, spy = 0;
-
-  // Helper: convert CSS mouse coords → world space coords
+  // Helper: CSS mouse → world coords
   function _mouseToWorld(e) {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -2151,141 +2044,142 @@ function initNetworkMap() {
     };
   }
 
-  // Helper: check if click is on minimap area (bottom-right)
-  function _isOnMinimap(cssX, cssY, canvasW, canvasH) {
-    const mmW = 140, mmH = 90, mmPad = 8;
-    return cssX >= canvasW - mmW - mmPad && cssY >= canvasH - mmH - mmPad;
+  // Hit-test: find node under cursor
+  function _hitNode(e) {
+    if (!nm.nodes) return null;
+    const m = _mouseToWorld(e);
+    const hitR = 22 * m.dpr / nm.zoom;
+    for (const node of nm.nodes) {
+      const dx = node.x - m.worldX, dy = node.y - m.worldY;
+      if (dx * dx + dy * dy < hitR * hitR) return node;
+    }
+    return null;
   }
 
-  // Helper: convert minimap CSS click → world coords, then pan there
+  // Minimap helpers
+  function _isOnMinimap(cssX, cssY, canvasW, canvasH) {
+    return cssX >= canvasW - 148 && cssY >= canvasH - 98;
+  }
   function _minimapClick(cssX, cssY, canvasW, canvasH) {
     if (!nm.nodes || !nm.nodes.length) return;
+    const dpr = window.devicePixelRatio || 1;
     const mmW = 140, mmH = 90, mmPad = 8;
     const mmX = canvasW - mmW - mmPad, mmY = canvasH - mmH - mmPad;
-    // Normalized position within minimap (0..1)
-    const nx = (cssX - mmX) / mmW;
-    const ny = (cssY - mmY) / mmH;
-    // Get world bounding box
+    const nx = (cssX - mmX) / mmW, ny = (cssY - mmY) / mmH;
     let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
-    const dpr = window.devicePixelRatio || 1;
     for (const n of nm.nodes) { mnX = Math.min(mnX, n.x); mxX = Math.max(mxX, n.x); mnY = Math.min(mnY, n.y); mxY = Math.max(mxY, n.y); }
     mnX = Math.min(mnX, -20*dpr); mxX = Math.max(mxX, 20*dpr);
     mnY = Math.min(mnY, -20*dpr); mxY = Math.max(mxY, 20*dpr);
     const cxW = (mnX + mxX) / 2, cyW = (mnY + mxY) / 2;
     const rangeX = mxX - mnX || 1, rangeY = mxY - mnY || 1;
-    const mmInnerPad = 8;
-    const scaleX = (mmW * dpr - 2*mmInnerPad*dpr) / rangeX;
-    const scaleY = (mmH * dpr - 2*mmInnerPad*dpr) / rangeY;
-    const mmScale = Math.min(scaleX, scaleY);
-    // World coordinate that was clicked
+    const mmScale = Math.min((mmW * dpr - 16*dpr) / rangeX, (mmH * dpr - 16*dpr) / rangeY);
     const targetWX = cxW + ((nx - 0.5) * mmW * dpr) / mmScale;
     const targetWY = cyW + ((ny - 0.5) * mmH * dpr) / mmScale;
-    // Pan so that world point is at viewport center
     nm.panX = -targetWX * nm.zoom / dpr;
     nm.panY = -targetWY * nm.zoom / dpr;
     renderNetworkMap();
   }
 
+  // ── Zoom ──
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 0.88;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left - rect.width / 2;
+    const my = e.clientY - rect.top - rect.height / 2;
+    const oldZoom = nm.zoom;
+    nm.zoom = Math.max(0.2, Math.min(8, nm.zoom * factor));
+    const zRatio = nm.zoom / oldZoom;
+    nm.panX = mx * (1 - zRatio) + nm.panX * zRatio;
+    nm.panY = my * (1 - zRatio) + nm.panY * zRatio;
+    renderNetworkMap();
+  }, { passive: false });
+
+  // ── Drag: node drag or pan ──
+  let dragging = false, sx = 0, sy = 0, spx = 0, spy = 0;
+  nm.dragNode = null;
+
   canvas.addEventListener("mousedown", (e) => {
     const m = _mouseToWorld(e);
-    // If clicking on minimap, pan to that location
     if (_isOnMinimap(m.cssX, m.cssY, m.canvasW, m.canvasH)) {
       _minimapClick(m.cssX, m.cssY, m.canvasW, m.canvasH);
       return;
     }
+    // Check if clicking on a device node → start node drag
+    const hit = _hitNode(e);
+    if (hit) {
+      nm.dragNode = hit;
+      nm._dragStartX = hit.x;
+      nm._dragStartY = hit.y;
+      canvas.style.cursor = "grabbing";
+      return;
+    }
+    // Otherwise pan the canvas
     dragging = true;
     sx = e.clientX; sy = e.clientY;
     spx = nm.panX; spy = nm.panY;
     canvas.style.cursor = "grabbing";
   });
+
   document.addEventListener("mousemove", (e) => {
+    // Node drag
+    if (nm.dragNode) {
+      const m = _mouseToWorld(e);
+      nm.dragNode.x = m.worldX;
+      nm.dragNode.y = m.worldY;
+      nm.dragNode.pinned = true;
+      renderNetworkMap();
+      return;
+    }
+    // Pan drag
     if (dragging) {
       nm.panX = spx + (e.clientX - sx);
       nm.panY = spy + (e.clientY - sy);
       renderNetworkMap();
       return;
     }
-    // Hover detection (only when not dragging)
+    // Hover detection
     if (!nm.nodes || !nm.nodes.length) return;
     const rect = canvas.getBoundingClientRect();
-    // Only handle if mouse is over the canvas
     if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
-    const m = _mouseToWorld(e);
-    const hitR = 20 * m.dpr / nm.zoom;
-    let found = null;
-    for (const node of nm.nodes) {
-      const dx = node.x - m.worldX, dy = node.y - m.worldY;
-      if (dx * dx + dy * dy < hitR * hitR) { found = node; break; }
-    }
-    if (found !== nm.hoverNode) {
-      nm.hoverNode = found;
-      canvas.style.cursor = found ? "pointer" : "grab";
+    const hit = _hitNode(e);
+    if (hit !== nm.hoverNode) {
+      nm.hoverNode = hit;
+      canvas.style.cursor = hit ? "grab" : "default";
       renderNetworkMap();
     }
   });
+
   document.addEventListener("mouseup", () => {
-    if (dragging) { dragging = false; canvas.style.cursor = nm.hoverNode ? "pointer" : "grab"; }
+    if (nm.dragNode) {
+      _saveMapPositions();
+      nm.dragNode = null;
+      canvas.style.cursor = nm.hoverNode ? "grab" : "default";
+    }
+    if (dragging) {
+      dragging = false;
+      canvas.style.cursor = nm.hoverNode ? "grab" : "default";
+    }
   });
 
-  // Double-click: if on a node — open device window; otherwise reset view
+  // Double-click: device details or reset view
   canvas.addEventListener("dblclick", (e) => {
-    if (!nm.nodes || !nm.nodes.length) {
-      nm.zoom = 1; nm.panX = 0; nm.panY = 0; nm.nodes = null;
-      renderNetworkMap();
-      return;
-    }
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const canvasX = (e.clientX - rect.left) * dpr;
-    const canvasY = (e.clientY - rect.top)  * dpr;
-    const cw = canvas.width, ch = canvas.height;
-    // Convert canvas device pixels → world_dpr space
-    const worldX = (canvasX - cw / 2 - nm.panX * dpr) / nm.zoom;
-    const worldY = (canvasY - ch / 2 - nm.panY * dpr) / nm.zoom;
-    // Hit radius: 24 CSS px converted to world_dpr space
-    const hitR = 24 * dpr / nm.zoom;
-
-    let hit = null;
-    for (const node of nm.nodes) {
-      const dx = node.x - worldX, dy = node.y - worldY;
-      if (dx * dx + dy * dy < hitR * hitR) { hit = node; break; }
-    }
-
+    const hit = _hitNode(e);
     if (hit) {
       const dev = hit.dev;
       const ieee = dev.ieee || "";
-      // Try to find a real entity for this device via deviceEntityMap (most reliable)
       const allItems = [...state.zhaItems, ...state.switchItems, ...state.sensorItems];
       let entity = null;
-
-      // 1st: deviceEntityMap lookup
-      if (ieee && state.deviceEntityMap && state.deviceEntityMap[ieee]) {
-        const mapIds = state.deviceEntityMap[ieee];
-        if (mapIds.length) entity = allItems.find(e => e.entity_id === mapIds[0]);
-      }
-      // 2nd: match by device_ieee field on entities
-      if (!entity && ieee) {
-        entity = allItems.find(e => e.device_ieee === ieee);
-      }
-      // 3rd: slug-based fallback
+      if (ieee && state.deviceEntityMap?.[ieee]?.length)
+        entity = allItems.find(e => e.entity_id === state.deviceEntityMap[ieee][0]);
+      if (!entity && ieee) entity = allItems.find(e => e.device_ieee === ieee);
       if (!entity) {
         const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
-        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-        entity = allItems.find(e => {
-          const n = (e.entity_id.split(".")[1] || "").toLowerCase();
-          return n === slug || n.startsWith(slug + "_") || (slug.length >= 4 && n.startsWith(slug.slice(0, Math.max(4, slug.length - 2))));
-        });
-      }
-      if (!entity) {
-        // Fallback: synthetic entity from device data
-        const rawName = dev.user_given_name || dev.name || dev.ieee || "device";
-        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-        const iconCls = dev.device_type === "Router" ? "mdi:router-wireless" : "mdi:zigbee";
         entity = {
-          entity_id: `device.${slug}`,
+          entity_id: `device.${rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
           friendly_name: rawName,
           state: dev.available === false ? "unavailable" : "online",
-          icon: iconCls,
+          icon: dev.device_type === "Router" ? "mdi:router-wireless" : "mdi:zigbee",
           lqi: _devLqi(dev),
           device_ieee: ieee,
           _deviceRaw: dev,
@@ -2298,12 +2192,12 @@ function initNetworkMap() {
     }
   });
 
-  // Scan Network button — triggers ZHA topology scan (reads neighbor tables) then redraws
+  // ── Scan Network button ──
   const scanBtn = $("netmap-scan-btn");
   if (scanBtn) {
     scanBtn.addEventListener("click", async () => {
       scanBtn.disabled = true;
-      scanBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Scanning topology\u2026';
+      scanBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Scanning…';
       try {
         await api("api/network-scan", { method: "POST" });
         nm.nodes = null; nm.nodesKey = null;
@@ -2315,6 +2209,63 @@ function initNetworkMap() {
       }
     });
   }
+
+  // ── Load Background Image button ──
+  const bgBtn = $("netmap-bg-btn");
+  if (bgBtn) {
+    bgBtn.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            nm.bgImage = img;
+            // Save as data URL for persistence
+            try { localStorage.setItem("zha_map_bg", reader.result); } catch { /* quota */ }
+            renderNetworkMap();
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    });
+  }
+
+  // ── Clear Background button ──
+  const bgClearBtn = $("netmap-bg-clear-btn");
+  if (bgClearBtn) {
+    bgClearBtn.addEventListener("click", () => {
+      nm.bgImage = null;
+      localStorage.removeItem("zha_map_bg");
+      renderNetworkMap();
+    });
+  }
+
+  // ── Reset Positions button ──
+  const resetBtn = $("netmap-reset-btn");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      localStorage.removeItem("zha_map_positions");
+      nm.nodes = null; nm.nodesKey = null;
+      renderNetworkMap();
+    });
+  }
+
+  // ── Restore saved background image on init ──
+  try {
+    const savedBg = localStorage.getItem("zha_map_bg");
+    if (savedBg) {
+      const img = new Image();
+      img.onload = () => { nm.bgImage = img; renderNetworkMap(); };
+      img.src = savedBg;
+    }
+  } catch { /* ignore */ }
 }
 
 /* ========================================================

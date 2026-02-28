@@ -301,8 +301,13 @@
         </div>
       </div>
       <div class="window-body netmap-body">
+        <div class="netmap-toolbar">
+          <button id="netmap-scan-btn" class="netmap-toolbar-btn" title="Scan ZHA network topology"><i class="mdi mdi-radar"></i> Scan Network</button>
+          <button id="netmap-bg-btn" class="netmap-toolbar-btn" title="Load background image (floor plan)"><i class="mdi mdi-image-plus"></i> Load Background</button>
+          <button id="netmap-bg-clear-btn" class="netmap-toolbar-btn" title="Remove background image"><i class="mdi mdi-image-off"></i> Clear BG</button>
+          <button id="netmap-reset-btn" class="netmap-toolbar-btn" title="Reset all device positions"><i class="mdi mdi-map-marker-remove"></i> Reset Positions</button>
+        </div>
         <canvas id="netmap-canvas"></canvas>
-        <button id="netmap-scan-btn" class="netmap-scan-btn" title="Scan ZHA network topology" data-i18n-title="title.scan_network"><i class="mdi mdi-radar"></i> <span data-i18n="btn.scan_network">Scan Network</span></button>
       </div>
       <div class="resize-handle"></div>
     </section>

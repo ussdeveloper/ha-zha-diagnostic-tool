@@ -1,5 +1,20 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.23] - 2026-02-28
+
+### Fixed
+- **Groups/Binding/Network Settings icons not opening windows**: added missing `WM.defaults` entries and render triggers for the 3 new windows.
+
+### Changed
+- **Network Map redesigned as interactive drag-and-drop canvas**:
+  - Devices are draggable — positions saved per-device in localStorage and restored on reload.
+  - Background image support: load a floor plan image, persisted in localStorage.
+  - Toolbar with Scan Network, Load Background, Clear BG, and Reset Positions buttons.
+  - Pinned device indicator (blue dot) shows which devices have saved positions.
+  - Connection lines colored by LQI with midpoint LQI labels.
+  - Hover tooltip shows pin status and drag instructions.
+  - Minimap, zoom/pan, and double-click device detail preserved.
+
 ## [0.9.22] - 2026-02-28
 
 ### Fixed

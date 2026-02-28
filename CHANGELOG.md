@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.19] - 2026-02-28
+
+### Fixed
+- Groups, Binding, and Network Settings window icons now correctly open their windows.
+
+### Changed
+- Network Map: drag-and-drop device positioning with localStorage persistence, background image support (floor plan overlay), toolbar with Scan/Load BG/Clear BG/Reset buttons, pinned device indicators, LQI labels on connection lines.
+
 ## [0.10.18] - 2026-02-28
 
 ### Fixed
