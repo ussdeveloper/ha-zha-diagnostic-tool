@@ -1,5 +1,18 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.20] - 2026-02-28
+
+### Changed
+- **Device Helper**: restructured from 2-column to 3-column layout — device list (left), device info + entities + actions (center), clusters & endpoints (right).
+- **Device Helper**: default window size increased to 1100×600 for wider layout.
+- **Resize bars**: rewritten `initHResizeBar` to accept target + min/max width — two independent resize bars between the three columns.
+
+### Added
+- **Annotation overlay**: full-screen drawing tool accessible from taskbar — pen, arrow, rectangle, text tools with color picker and brush size control.
+- **Annotation notes panel**: add/edit/delete text notes alongside drawings, save entire annotation as PNG.
+- **Mock server** (`tests/mock_server.py`): standalone aiohttp server with fake ZHA data for local UI testing.
+- **Selenium tests** (`tests/test_ui_selenium.py`): 16 automated tests covering page load, Device Helper 3-column layout, annotation overlay, and network map.
+
 ## [0.9.19] - 2026-02-28
 
 ### Fixed

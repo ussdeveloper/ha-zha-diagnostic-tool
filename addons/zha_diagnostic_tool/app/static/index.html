@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZHA Diagnostic Desktop</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-  <link rel="stylesheet" href="static/styles.css?v=0919" />
+  <link rel="stylesheet" href="static/styles.css?v=0920" />
 </head>
 <body>
 
@@ -307,16 +307,15 @@
         </div>
       </div>
       <div class="window-body devhelper-body">
-        <div class="devhelper-left">
+        <div class="devhelper-col devhelper-left" id="devhelper-left">
           <input id="devhelper-search" placeholder="Search ZHA devices..." data-i18n-placeholder="ph.search_devhelper" />
           <div id="devhelper-device-list" class="list"></div>
         </div>
         <div class="devhelper-resize-bar" id="devhelper-resize-bar"></div>
-        <div class="devhelper-right">
+        <div class="devhelper-col devhelper-center" id="devhelper-center">
           <div id="devhelper-device-info" class="devhelper-info">
             <span class="entity-sub" data-i18n="label.select_device">Select a device from the list</span>
           </div>
-          <div id="devhelper-clusters" class="list" style="flex:1;min-height:0"></div>
           <div class="devhelper-actions">
             <button class="accent" id="devhelper-identify-btn" disabled><i class="mdi mdi-flash"></i> <span data-i18n="btn.identify">Identify</span></button>
             <label class="checkbox"><input type="checkbox" id="devhelper-keepalive-chk" /> <span data-i18n="label.keep_alive">Keep-alive</span></label>
@@ -324,6 +323,13 @@
             <span class="meta" data-i18n="label.sec">sec</span>
             <button class="accent" id="devhelper-save-keepalive-btn" disabled><i class="mdi mdi-content-save"></i></button>
           </div>
+        </div>
+        <div class="devhelper-resize-bar" id="devhelper-resize-bar2"></div>
+        <div class="devhelper-col devhelper-right" id="devhelper-right">
+          <div style="font-size:11px;color:var(--text-sec);padding:2px 0 2px 4px;flex-shrink:0">
+            <i class="mdi mdi-format-list-group" style="color:var(--accent)"></i> Clusters &amp; Endpoints
+          </div>
+          <div id="devhelper-clusters" class="list" style="flex:1;min-height:0"></div>
         </div>
       </div>
       <div class="resize-handle"></div>
@@ -400,6 +406,7 @@
       <button class="taskbar-app" data-win="netmap-win" title="Network Map"><i class="mdi mdi-lan"></i></button>
       <button class="taskbar-app" data-win="devhelper-win" title="Device Helper"><i class="mdi mdi-wrench"></i></button>
       <button class="taskbar-app" data-win="zigbeelogs-win" title="Zigbee Logs"><i class="mdi mdi-alert-circle"></i></button>
+      <button class="taskbar-app" id="annotate-btn" title="Annotate / Draw Notes"><i class="mdi mdi-draw"></i></button>
       <button class="taskbar-app" id="refresh-btn" title="Refresh data" data-i18n-title="title.refresh"><i class="mdi mdi-refresh"></i></button>
     </div>
 
@@ -440,7 +447,38 @@
     </div>
   </div>
 
-  <script src="static/locale.js?v=0919"></script>
-  <script src="static/app.js?v=0919"></script>
+  <!-- Annotation overlay -->
+  <div id="annotate-overlay" class="annotate-overlay hidden">
+    <canvas id="annotate-canvas"></canvas>
+    <div class="annotate-toolbar">
+      <button class="annotate-tool active" data-tool="pen" title="Draw"><i class="mdi mdi-pencil"></i></button>
+      <button class="annotate-tool" data-tool="arrow" title="Arrow"><i class="mdi mdi-arrow-top-right"></i></button>
+      <button class="annotate-tool" data-tool="rect" title="Rectangle"><i class="mdi mdi-rectangle-outline"></i></button>
+      <button class="annotate-tool" data-tool="text" title="Add text"><i class="mdi mdi-format-text"></i></button>
+      <span class="annotate-sep"></span>
+      <input type="color" id="annotate-color" value="#ff4444" class="annotate-color" title="Color" />
+      <select id="annotate-size" class="annotate-size" title="Brush size">
+        <option value="2">Thin</option>
+        <option value="4" selected>Medium</option>
+        <option value="8">Thick</option>
+      </select>
+      <span class="annotate-sep"></span>
+      <button class="annotate-tool" id="annotate-undo" title="Undo"><i class="mdi mdi-undo"></i></button>
+      <button class="annotate-tool" id="annotate-clear" title="Clear all"><i class="mdi mdi-delete"></i></button>
+      <button class="annotate-tool" id="annotate-save" title="Save as PNG"><i class="mdi mdi-content-save"></i></button>
+      <span class="annotate-sep"></span>
+      <button class="annotate-tool annotate-close" id="annotate-close" title="Close overlay"><i class="mdi mdi-close"></i></button>
+    </div>
+    <div class="annotate-notes">
+      <div class="annotate-notes-header">
+        <i class="mdi mdi-note-text" style="color:var(--accent)"></i> Notes
+        <button class="annotate-tool" id="annotate-add-note" title="Add note" style="margin-left:auto"><i class="mdi mdi-plus"></i></button>
+      </div>
+      <div id="annotate-notes-list" class="annotate-notes-list"></div>
+    </div>
+  </div>
+
+  <script src="static/locale.js?v=0920"></script>
+  <script src="static/app.js?v=0920"></script>
 </body>
 </html>

@@ -247,7 +247,7 @@ const WM = {
     "sensor-win":       { w: 620, h: 360, x: 330, y: 75  },
     "battery-win":      { w: 720, h: 520, x: 160, y: 45  },
     "netmap-win":       { w: 820, h: 600, x: 160, y: 20  },
-    "devhelper-win":    { w: 820, h: 560, x: 140, y: 30  },
+    "devhelper-win":    { w: 1100, h: 600, x: 80, y: 20  },
     "lights-win":       { w: 520, h: 440, x: 250, y: 115 },
     "zigbeelogs-win":   { w: 780, h: 520, x: 180, y: 40  },
     "unavail-devs-win": { w: 600, h: 400, x: 220, y: 100 },
@@ -2481,20 +2481,19 @@ function initSplitResizeBar(barId, topId, bottomId) {
 }
 
 /* ========================================================
-   HORIZONTAL SPLIT RESIZE BAR (DevHelper left/right panels)
+   HORIZONTAL SPLIT RESIZE BAR (DevHelper columns)
    ======================================================== */
-function initHResizeBar(barId, leftId, rightId) {
+function initHResizeBar(barId, targetId, minW, maxW) {
   const bar = $(barId);
-  const left = $(leftId);
-  const right = $(rightId);
-  if (!bar || !left || !right) return;
+  const target = $(targetId);
+  if (!bar || !target) return;
 
   let dragging = false, startX = 0, startW = 0;
 
   bar.addEventListener("mousedown", (e) => {
     dragging = true;
     startX = e.clientX;
-    startW = left.offsetWidth;
+    startW = target.offsetWidth;
     bar.classList.add("dragging");
     document.body.style.userSelect = "none";
     document.body.style.cursor = "ew-resize";
@@ -2502,9 +2501,9 @@ function initHResizeBar(barId, leftId, rightId) {
 
   document.addEventListener("mousemove", (e) => {
     if (!dragging) return;
-    const newW = Math.max(120, Math.min(500, startW + (e.clientX - startX)));
-    left.style.width = newW + "px";
-    left.style.flex = "none";
+    const newW = Math.max(minW, Math.min(maxW, startW + (e.clientX - startX)));
+    target.style.width = newW + "px";
+    target.style.flex = "none";
   });
 
   document.addEventListener("mouseup", () => {
@@ -4885,6 +4884,246 @@ async function load() {
   }
 }
 
+/* ========================================================
+   ANNOTATION / DRAWING OVERLAY
+   ======================================================== */
+const Annotate = (() => {
+  let active = false;
+  let tool = "pen";
+  let color = "#ff4444";
+  let lineW = 4;
+  let strokes = [];       // completed strokes [{type, pts/rect/text, color, lineW}]
+  let currentPts = [];
+  let shapeStart = null;
+  let notes = [];
+  let noteCounter = 0;
+  let ctx = null;
+  let canvas = null;
+
+  function open() {
+    const overlay = $("annotate-overlay");
+    if (!overlay) return;
+    overlay.classList.remove("hidden");
+    canvas = $("annotate-canvas");
+    if (!canvas) return;
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = window.innerWidth + "px";
+    canvas.style.height = window.innerHeight + "px";
+    ctx = canvas.getContext("2d");
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    active = true;
+    redraw();
+  }
+
+  function close() {
+    const overlay = $("annotate-overlay");
+    if (overlay) overlay.classList.add("hidden");
+    active = false;
+  }
+
+  function setTool(t) {
+    tool = t;
+    document.querySelectorAll(".annotate-tool[data-tool]").forEach(b => {
+      b.classList.toggle("active", b.dataset.tool === t);
+    });
+    if (canvas) canvas.style.cursor = t === "text" ? "text" : "crosshair";
+  }
+
+  function redraw() {
+    if (!ctx || !canvas) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const s of strokes) drawStroke(s);
+  }
+
+  function drawStroke(s) {
+    if (!ctx) return;
+    ctx.strokeStyle = s.color;
+    ctx.fillStyle = s.color;
+    ctx.lineWidth = s.lineW;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (s.type === "pen" && s.pts.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(s.pts[0].x, s.pts[0].y);
+      for (let i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+      ctx.stroke();
+    } else if (s.type === "arrow" && s.pts.length === 2) {
+      const [a, b] = s.pts;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      // arrowhead
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      const hl = 14;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x - hl * Math.cos(angle - 0.4), b.y - hl * Math.sin(angle - 0.4));
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x - hl * Math.cos(angle + 0.4), b.y - hl * Math.sin(angle + 0.4));
+      ctx.stroke();
+    } else if (s.type === "rect" && s.rect) {
+      const r = s.rect;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    } else if (s.type === "text" && s.text) {
+      ctx.font = `${Math.max(14, s.lineW * 4)}px 'Segoe UI', sans-serif`;
+      ctx.fillText(s.text, s.pos.x, s.pos.y);
+    }
+  }
+
+  function onDown(e) {
+    if (!active) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (tool === "text") {
+      const text = prompt("Enter annotation text:");
+      if (text) {
+        strokes.push({ type: "text", text, pos: { x, y }, color, lineW });
+        redraw();
+      }
+      return;
+    }
+
+    currentPts = [{ x, y }];
+    shapeStart = { x, y };
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseup", onUp, { once: true });
+  }
+
+  function onMove(e) {
+    if (!active || !currentPts.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (tool === "pen") {
+      currentPts.push({ x, y });
+      redraw();
+      drawStroke({ type: "pen", pts: currentPts, color, lineW });
+    } else {
+      redraw();
+      if (tool === "arrow") {
+        drawStroke({ type: "arrow", pts: [shapeStart, { x, y }], color, lineW });
+      } else if (tool === "rect") {
+        drawStroke({ type: "rect", rect: { x: shapeStart.x, y: shapeStart.y, w: x - shapeStart.x, h: y - shapeStart.y }, color, lineW });
+      }
+    }
+  }
+
+  function onUp(e) {
+    canvas.removeEventListener("mousemove", onMove);
+    if (!currentPts.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (tool === "pen") {
+      strokes.push({ type: "pen", pts: [...currentPts], color, lineW });
+    } else if (tool === "arrow") {
+      strokes.push({ type: "arrow", pts: [shapeStart, { x, y }], color, lineW });
+    } else if (tool === "rect") {
+      strokes.push({ type: "rect", rect: { x: shapeStart.x, y: shapeStart.y, w: x - shapeStart.x, h: y - shapeStart.y }, color, lineW });
+    }
+    currentPts = [];
+    shapeStart = null;
+    redraw();
+  }
+
+  function undo() {
+    strokes.pop();
+    redraw();
+  }
+
+  function clear() {
+    strokes = [];
+    redraw();
+  }
+
+  function saveAsPng() {
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `annotation_${Date.now()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  function addNote() {
+    noteCounter++;
+    const id = `note-${noteCounter}`;
+    notes.push({ id, text: "" });
+    renderNotes();
+    const ta = document.querySelector(`#${id} textarea`);
+    if (ta) ta.focus();
+  }
+
+  function deleteNote(id) {
+    notes = notes.filter(n => n.id !== id);
+    renderNotes();
+  }
+
+  function renderNotes() {
+    const host = $("annotate-notes-list");
+    if (!host) return;
+    host.innerHTML = "";
+    for (const n of notes) {
+      const item = document.createElement("div");
+      item.className = "annotate-note-item";
+      item.id = n.id;
+      const ta = document.createElement("textarea");
+      ta.value = n.text;
+      ta.placeholder = "Type your note...";
+      ta.addEventListener("input", () => { n.text = ta.value; });
+      const del = document.createElement("button");
+      del.className = "annotate-note-del";
+      del.innerHTML = '<i class="mdi mdi-close"></i>';
+      del.addEventListener("click", () => deleteNote(n.id));
+      item.appendChild(ta);
+      item.appendChild(del);
+      host.appendChild(item);
+    }
+    if (!notes.length) {
+      host.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text-tert)">No notes yet. Click + to add.</div>';
+    }
+  }
+
+  function init() {
+    $("annotate-btn")?.addEventListener("click", () => { active ? close() : open(); });
+    $("annotate-close")?.addEventListener("click", close);
+    $("annotate-undo")?.addEventListener("click", undo);
+    $("annotate-clear")?.addEventListener("click", clear);
+    $("annotate-save")?.addEventListener("click", saveAsPng);
+    $("annotate-add-note")?.addEventListener("click", addNote);
+    $("annotate-color")?.addEventListener("input", (e) => { color = e.target.value; });
+    $("annotate-size")?.addEventListener("change", (e) => { lineW = parseInt(e.target.value, 10); });
+
+    document.querySelectorAll(".annotate-tool[data-tool]").forEach(b => {
+      b.addEventListener("click", () => setTool(b.dataset.tool));
+    });
+
+    const c = $("annotate-canvas");
+    if (c) c.addEventListener("mousedown", onDown);
+
+    window.addEventListener("resize", () => {
+      if (!active || !canvas) return;
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
+      ctx = canvas.getContext("2d");
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      redraw();
+    });
+
+    renderNotes();
+  }
+
+  return { init, open, close };
+})();
+
 /* ---------- Init ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   /* Boot window manager */
@@ -4970,7 +5209,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initSplitResizeBar("telemetry-split-bar", "telemetry-top", "telemetry-bottom");
 
   /* DevHelper horizontal split resize bar */
-  initHResizeBar("devhelper-resize-bar", "devhelper-left", "devhelper-right");
+  initHResizeBar("devhelper-resize-bar",  "devhelper-left",   120, 400);
+  initHResizeBar("devhelper-resize-bar2", "devhelper-center", 180, 500);
+
+  /* Annotation overlay */
+  Annotate.init();
 
   /* Desktop icon drag & drop */
   initDesktopIconDrag();

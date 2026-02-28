@@ -1,5 +1,5 @@
 name: "ZHA Diagnostic Companion"
-version: "0.9.19"
+version: "0.9.20"
 slug: "zha_diagnostic_tool"
 description: "Companion add-on with web UI: Zigbee monitoring, switch delay, charts, battery monitor, mirror switch"
 url: "https://github.com/ussdeveloper/ha-zha-diagnostic-tool"

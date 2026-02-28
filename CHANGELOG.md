@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.16] - 2026-02-28
+
+### Changed
+- Device Helper: 3-column layout (device list | device info + actions | clusters & endpoints) with two independent resize bars.
+
+### Added
+- Annotation overlay: pen/arrow/rect/text drawing tools, color/size controls, notes panel, save as PNG.
+- Mock server + 16 Selenium tests for local UI verification.
+
 ## [0.10.15] - 2026-02-28
 
 ### Fixed
