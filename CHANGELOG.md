@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.15] - 2026-02-28
+
+### Fixed
+- Entity-device mapping: rewritten to use ZHA canonical IEEE format, unique_id parsing fallback, and normalized IEEE comparison across sources. ZHA data fetched before state refresh for correct mapping on every cycle.
+
 ## [0.10.14] - 2026-02-28
 
 ### Fixed

@@ -141,10 +141,10 @@ class DiagnosticRuntime:
     async def _poll_loop(self) -> None:
         while True:
             try:
+                await self._maybe_fetch_zha_map()
                 await self.refresh_states()
                 self._check_command_timeouts()
                 await self._maybe_fetch_battery_history()
-                await self._maybe_fetch_zha_map()
                 await self._evaluate_keepalive()
                 self.last_error = None
             except Exception as exc:  # noqa: BLE001
@@ -287,28 +287,66 @@ class DiagnosticRuntime:
             pass  # service fetch is best-effort
 
         # Fetch device+entity registries to build ZHA IEEE → entity_id mapping
+        # Uses multiple sources for robust matching:
+        #   1. Device registry identifiers ("zha", ieee)
+        #   2. Entity registry unique_id parsing (ZHA format: ieee-ep-cluster)
+        #   3. Cross-reference with zha_devices_full for canonical IEEE format
         try:
             dev_reg_resp = await self._ws_command({"type": "config/device_registry/list"})
             ent_reg_resp = await self._ws_command({"type": "config/entity_registry/list"})
             if dev_reg_resp.get("success") and ent_reg_resp.get("success"):
-                # Build device_id → IEEE mapping from device registry
+                # Build canonical IEEE lookup from ZHA devices (normalized → original)
+                zha_norm_to_canon: dict[str, str] = {}
+                for zd in self.zha_devices_full:
+                    ieee = zd.get("ieee", "")
+                    if ieee:
+                        zha_norm_to_canon[self._normalize_ieee(ieee)] = ieee
+
+                # Source 1: device registry identifiers → device_id → IEEE
                 dev_id_to_ieee: dict[str, str] = {}
                 for dev in dev_reg_resp.get("result", []):
                     for ident in dev.get("identifiers", []):
-                        if isinstance(ident, (list, tuple)) and len(ident) >= 2 and ident[0] == "zha":
-                            dev_id_to_ieee[dev["id"]] = str(ident[1])
-                # Build IEEE → entity_ids mapping from entity registry
+                        if isinstance(ident, (list, tuple)) and len(ident) >= 2 and str(ident[0]) == "zha":
+                            raw_ieee = str(ident[1])
+                            norm = self._normalize_ieee(raw_ieee)
+                            # Use canonical form from ZHA if available, else raw
+                            dev_id_to_ieee[dev["id"]] = zha_norm_to_canon.get(norm, raw_ieee)
+
+                # Build IEEE → entity_ids mapping
                 ieee_entities: dict[str, list[str]] = {}
+
                 for ent in ent_reg_resp.get("result", []):
                     eid = ent.get("entity_id", "")
+                    if not eid:
+                        continue
                     did = ent.get("device_id", "")
-                    ieee = dev_id_to_ieee.get(did)
-                    if ieee and eid:
-                        ieee_entities.setdefault(ieee, []).append(eid)
+                    mapped_ieee = ""
+
+                    # Method A: via device_id → device registry → IEEE
+                    if did and did in dev_id_to_ieee:
+                        mapped_ieee = dev_id_to_ieee[did]
+
+                    # Method B: ZHA entity unique_id parsing (fallback)
+                    if not mapped_ieee and ent.get("platform") == "zha":
+                        uid = ent.get("unique_id", "")
+                        extracted = self._extract_ieee_from_unique_id(uid)
+                        if extracted:
+                            norm = self._normalize_ieee(extracted)
+                            mapped_ieee = zha_norm_to_canon.get(norm, extracted)
+
+                    if mapped_ieee:
+                        if eid not in ieee_entities.get(mapped_ieee, []):
+                            ieee_entities.setdefault(mapped_ieee, []).append(eid)
+
                 self.device_entity_map = ieee_entities
+                LOGGER.debug(
+                    "device_entity_map: %d IEEE addresses, %d total entities",
+                    len(ieee_entities),
+                    sum(len(v) for v in ieee_entities.values()),
+                )
                 # Backfill device_ieee on entities using registry data
                 all_ents = zigbee_entities + switch_entities + sensor_entities
-                eid_to_ieee = {}
+                eid_to_ieee: dict[str, str] = {}
                 for ieee_addr, eids in ieee_entities.items():
                     for eid in eids:
                         eid_to_ieee[eid] = ieee_addr
@@ -989,6 +1027,32 @@ class DiagnosticRuntime:
         return DiagnosticRuntime._is_zigbee_entity(item)
 
     @staticmethod
+    def _normalize_ieee(ieee: str) -> str:
+        """Normalize IEEE address to lowercase hex without separators."""
+        return ieee.lower().replace(":", "").replace("-", "").replace("0x", "")
+
+    @staticmethod
+    def _extract_ieee_from_unique_id(unique_id: str) -> str:
+        """Extract IEEE address from a ZHA entity unique_id.
+
+        ZHA unique_ids look like: 'aa:bb:cc:dd:ee:ff:00:11-1-0x0006'
+        or 'aa:bb:cc:dd:ee:ff:00:11-1' (IEEE-endpoint[-cluster]).
+        """
+        if not unique_id:
+            return ""
+        # Split on '-' and check if the first part looks like an IEEE (8 colon-separated hex pairs)
+        parts = unique_id.split("-")
+        candidate = parts[0]
+        octets = candidate.split(":")
+        if len(octets) == 8 and all(len(o) == 2 for o in octets):
+            try:
+                int(candidate.replace(":", ""), 16)
+                return candidate
+            except ValueError:
+                pass
+        return ""
+
+    @staticmethod
     def _is_zigbee_entity(item: dict[str, Any]) -> bool:
         entity_id = str(item.get("entity_id", "")).lower()
         attrs = item.get("attributes") or {}
@@ -1181,6 +1245,8 @@ async def switch_action(request: web.Request) -> web.Response:
 
 
 async def refresh_now(_: web.Request) -> web.Response:
+    runtime._last_zha_map_ts = 0
+    await runtime._maybe_fetch_zha_map()
     await runtime.refresh_states()
     return web.json_response({"ok": True})
 

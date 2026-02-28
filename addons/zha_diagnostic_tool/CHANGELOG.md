@@ -1,5 +1,16 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.19] - 2026-02-28
+
+### Fixed
+- **Entity-device mapping**: completely rewritten to deeply integrate with ZHA.
+  - Map keys now use ZHA's canonical IEEE format (from `zha/devices`) ensuring frontend lookups always match.
+  - Added fallback: parses entity registry `unique_id` (ZHA format `ieee-ep-cluster`) when device registry matching fails.
+  - IEEE addresses normalized (lowercase, no separators) for cross-source comparison.
+  - ZHA device data (`_maybe_fetch_zha_map`) now fetched BEFORE `refresh_states()` in poll loop so map is always built with fresh ZHA data.
+  - `/api/refresh` endpoint now also re-fetches ZHA devices before rebuilding state.
+  - Identifier matching uses `str(ident[0])` to handle both string and non-string identifier types.
+
 ## [0.9.18] - 2026-02-28
 
 ### Fixed
