@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.22] - 2026-02-28
+
+### Fixed
+- Battery history now fetches all entities (was truncated to first 20).
+- XSS protection: `fmtDate()` fallback output is now HTML-escaped.
+- `poll_interval_seconds` validated to minimum 1s.
+- Selenium desktop shortcut tests fixed (use native double-click).
+
 ## [0.10.21] - 2026-02-28
 
 ### Fixed

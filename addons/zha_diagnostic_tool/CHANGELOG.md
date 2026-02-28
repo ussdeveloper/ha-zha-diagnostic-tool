@@ -1,5 +1,13 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.26] - 2026-02-28
+
+### Fixed
+- **Battery history truncation**: removed `[:20]` limit — all battery entities now get history fetched, not just first 20.
+- **XSS in fmtDate()**: fallback for unparseable dates now escaped via `escapeHtml()` before innerHTML insertion.
+- **poll_interval_seconds validation**: enforced minimum of 1 second to prevent runaway poll loops from bad config.
+- **Selenium test flakiness**: desktop shortcut tests now use `ActionChains.double_click()` instead of synthetic JS events; PDF capture test wait increased.
+
 ## [0.9.25] - 2026-02-28
 
 ### Fixed

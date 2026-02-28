@@ -216,7 +216,7 @@ function escapeHtml(s) {
 function fmtDate(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return String(iso);
+  if (isNaN(d.getTime())) return escapeHtml(String(iso));
   const Y = d.getFullYear();
   const M = String(d.getMonth() + 1).padStart(2, "0");
   const D = String(d.getDate()).padStart(2, "0");

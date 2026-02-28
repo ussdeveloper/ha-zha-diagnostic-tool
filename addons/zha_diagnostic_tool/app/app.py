@@ -83,7 +83,7 @@ class DiagnosticRuntime:
         self.token = os.getenv("SUPERVISOR_TOKEN", "")
         self.options = self._load_json(OPTIONS_PATH, default={})
 
-        self.poll_interval_seconds = int(self.options.get("poll_interval_seconds", 2))
+        self.poll_interval_seconds = max(1, int(self.options.get("poll_interval_seconds", 2)))
         self.max_delay_samples = int(self.options.get("max_delay_samples", 300))
         self.mirror_cooldown_ms = int(self.options.get("mirror_cooldown_ms", 1200))
         self.grafana_theme = str(self.options.get("grafana_theme", "vscode-dark"))
@@ -553,7 +553,7 @@ class DiagnosticRuntime:
             return
         try:
             start = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
-            entity_ids = ",".join(e["entity_id"] for e in self.battery_entities[:20])
+            entity_ids = ",".join(e["entity_id"] for e in self.battery_entities)
             async with self.session.get(
                 f"{SUPERVISOR_API}/history/period/{start}",
                 params={"filter_entity_id": entity_ids, "minimal_response": "", "significant_changes_only": ""},
