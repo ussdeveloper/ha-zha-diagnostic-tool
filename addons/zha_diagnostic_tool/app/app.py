@@ -5,10 +5,12 @@ import contextlib
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import re
 from statistics import mean
 from typing import Any
 
@@ -27,6 +29,45 @@ KEEPALIVE_PATH = Path("/config/zha_diagnostic_keepalive.json")
 STATIC_DIR = Path(__file__).parent / "static"
 
 ZIGBEE_KEYWORDS = ("zigbee", "zha", "deconz", "zigbee2mqtt", "bellows", "ezsp")
+
+
+def _file_content_hash(path: Path) -> str:
+    """Return first 12 chars of SHA-256 hex digest for a file, or epoch ms as fallback."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return str(int(datetime.now(UTC).timestamp() * 1000))
+
+
+def _build_index_html() -> bytes:
+    """Read index.html and inject content-based cache-bust hashes for CSS/JS."""
+    raw = (STATIC_DIR / "index.html").read_text("utf-8")
+    css_hash = _file_content_hash(STATIC_DIR / "styles.css")
+    js_hash = _file_content_hash(STATIC_DIR / "app.js")
+    # Replace any existing ?v=XXXX with content hash
+    raw = re.sub(r'styles\.css\?v=[^"]*', f'styles.css?h={css_hash}', raw)
+    raw = re.sub(r'app\.js\?v=[^"]*', f'app.js?h={js_hash}', raw)
+    # If no ?v= was present, append hash
+    if f'h={css_hash}' not in raw:
+        raw = raw.replace('styles.css"', f'styles.css?h={css_hash}"')
+    if f'h={js_hash}' not in raw:
+        raw = raw.replace('app.js"', f'app.js?h={js_hash}"')
+    # Inject anti-cache meta tags right after <meta charset>
+    anti_cache_meta = (
+        '\n  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />'
+        '\n  <meta http-equiv="Pragma" content="no-cache" />'
+        '\n  <meta http-equiv="Expires" content="0" />'
+    )
+    raw = raw.replace(
+        '<meta charset="UTF-8" />',
+        '<meta charset="UTF-8" />' + anti_cache_meta,
+    )
+    LOGGER.info("Cache-bust hashes: CSS=%s JS=%s", css_hash, js_hash)
+    return raw.encode("utf-8")
+
+
+# Pre-built on import; rebuilt on app startup
+_INDEX_HTML: bytes = _build_index_html()
 
 
 @dataclass(slots=True)
@@ -1149,8 +1190,9 @@ async def static_file(request: web.Request) -> web.Response:
 
 
 async def index(_: web.Request) -> web.Response:
+    global _INDEX_HTML  # noqa: PLW0603
     resp = web.Response(
-        body=(STATIC_DIR / "index.html").read_bytes(),
+        body=_INDEX_HTML,
         content_type="text/html",
         charset="utf-8",
     )
@@ -1890,6 +1932,8 @@ async def get_entity_history(request: web.Request) -> web.Response:
 
 
 async def on_startup(_: web.Application) -> None:
+    global _INDEX_HTML  # noqa: PLW0603
+    _INDEX_HTML = _build_index_html()  # rebuild with fresh content hashes
     await runtime.start()
 
 

@@ -1,5 +1,11 @@
 # Changelog - ZHA Diagnostic Companion
 
+## [0.9.22] - 2026-02-28
+
+### Fixed
+- **CSS/JS not updating after add-on update**: replaced static `?v=` query strings with SHA-256 content-based hashes (`?h=<hash>`) computed at runtime. Every time CSS or JS file content changes, the URL changes, forcing browsers to fetch the new version.
+- **HA Ingress cache bypass**: `index.html` is now built dynamically on startup with injected anti-cache `<meta>` tags, content hashes, and `Cache-Control: no-cache, no-store, must-revalidate` response headers at all layers (middleware + handler).
+
 ## [0.9.21] - 2026-02-28
 
 ### Added

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 Format inspired by Keep a Changelog, versioning follows SemVer.
 
+## [0.10.18] - 2026-02-28
+
+### Fixed
+- CSS/JS cache staleness after add-on update: dynamic SHA-256 content hashes replace static `?v=` query strings; anti-cache meta tags injected into HTML at runtime.
+
 ## [0.10.17] - 2026-02-28
 
 ### Added
